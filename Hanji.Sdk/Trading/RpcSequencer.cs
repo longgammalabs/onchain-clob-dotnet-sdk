@@ -51,10 +51,10 @@ namespace Hanji.Trading
             CancellationToken cancellationToken = default)
         {
             return await _sequencer.EnqueueAsync(
-                parameters: requestParams,
-                onSuccess: Sequencer_OnSuccess,
-                onError: Sequencer_OnError,
-                cancellationToken: cancellationToken);
+                requestParams,
+                Sequencer_OnSuccess,
+                Sequencer_OnError,
+                cancellationToken);
         }
 
         public Task<bool> TryCancelRequestAsync(
@@ -79,8 +79,8 @@ namespace Hanji.Trading
             _txIdToCallId.TryAdd(txId, args.CallId);
 
             _ = _tracker.TrackTransactionAsync(
-                txId: txId,
-                updateInterval: TimeSpan.FromSeconds(TRACKER_UPDATE_INTERVAL_SEC));
+                txId,
+                TimeSpan.FromSeconds(TRACKER_UPDATE_INTERVAL_SEC));
 
             return Task.CompletedTask;
         }

@@ -18,9 +18,9 @@ namespace Hanji.Common
                 throw new ArgumentNullException(nameof(error));
 
             logger.LogError(
-                exception: error.Exception,
-                message: $"{message}. Code: {{errorCode}}. Message: {{errorMessage}}",
-                args: [error.Code, error.Message]);
+                error.Exception,
+                $"{message}. Code: {{errorCode}}. Message: {{errorMessage}}",
+                error.Code, error.Message);
         }
 
         public static void LogError(
@@ -36,9 +36,9 @@ namespace Hanji.Common
                 throw new ArgumentNullException(nameof(error));
 
             logger.LogError(
-                exception: error.Exception,
-                message: $"{message}. Code: {{errorCode}}. Message: {{errorMessage}}",
-                args: [.. args, .. new object?[] { error.Code, error.Message }]);
+                error.Exception,
+                $"{message}. Code: {{errorCode}}. Message: {{errorMessage}}",
+                [.. args, .. new object?[] { error.Code, error.Message }]);
         }
 
         public static void LogWarning(
@@ -53,9 +53,9 @@ namespace Hanji.Common
                 throw new ArgumentNullException(nameof(error));
 
             logger.LogWarning(
-                exception: error.Exception,
-                message: $"{message}. Code: {{errorCode}}. Message: {{errorMessage}}",
-                args: [error.Code, error.Message]);
+                error.Exception,
+                $"{message}. Code: {{errorCode}}. Message: {{errorMessage}}",
+                error.Code, error.Message);
         }
 
         public static void LogWarning(
@@ -71,9 +71,9 @@ namespace Hanji.Common
                 throw new ArgumentNullException(nameof(error));
 
             logger.LogWarning(
-                exception: error.Exception,
-                message: $"{message}. Code: {{errorCode}}. Message: {{errorMessage}}",
-                args: [.. args, .. new object?[] { error.Code, error.Message }]);
+                error.Exception,
+                $"{message}. Code: {{errorCode}}. Message: {{errorMessage}}",
+                [.. args, .. new object?[] { error.Code, error.Message }]);
         }
     }
 }

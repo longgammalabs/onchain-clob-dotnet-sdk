@@ -14,5 +14,8 @@
             Side.Sell => Side.Buy,
             _ => throw new NotImplementedException(),
         };
+
+        public static Side GetSideFromOrderId(this ulong orderId) =>
+            (orderId & 0x1) == 0x1 ? Side.Sell : Side.Buy;
     }
 }

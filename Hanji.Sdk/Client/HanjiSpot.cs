@@ -3,6 +3,7 @@ using Hanji.Trading.Abstract;
 using Nethereum.Contracts;
 using Nethereum.RPC.Eth.DTOs;
 using Revelium.Evm.Abi.Erc20;
+using Revelium.Evm.Common;
 using Revelium.Evm.Rpc;
 using Revelium.Evm.Transactions;
 using Revelium.Evm.Transactions.Abstract;
@@ -91,24 +92,24 @@ namespace Hanji.Client
         {
             var approve = new Approve
             {
-                Spender              = @params.Spender,
-                Value                = @params.Amount,
+                Spender = @params.Spender,
+                Value = @params.Amount,
 
-                FromAddress          = Executor.Signer.GetAddress(),
-                AmountToSend         = @params.Value,
-                GasPrice             = @params.GasPrice,
-                Gas                  = @params.GasLimit,
-                MaxFeePerGas         = @params.MaxFeePerGas,
+                FromAddress = Executor.Signer.GetAddress(),
+                AmountToSend = @params.Value,
+                GasPrice = @params.GasPrice,
+                Gas = @params.GasLimit,
+                MaxFeePerGas = @params.MaxFeePerGas,
                 MaxPriorityFeePerGas = @params.MaxPriorityFeePerGas,
-                Nonce                = @params.Nonce,
-                TransactionType      = @params.TransactionType
+                Nonce = @params.Nonce,
+                TransactionType = @params.TransactionType
             };
 
-            var txInput = approve.CreateTransactionInput(@params.ContractAddress);
+            var txInput = approve.CreateTransactionInput(@params.ContractAddress, @params.ChainId ?? 0);
 
             var requestParams = new TransactionRequestParams
             {
-                Tx = TxInputToTxRequest(txInput, @params.ChainId),
+                Tx = TxInputToTxRequest(txInput),
                 EstimateGas = @params.EstimateGas,
                 EstimateGasReserveInPercent = @params.EstimateGasReserveInPercent,
             };
@@ -124,30 +125,30 @@ namespace Hanji.Client
         {
             var placeOrder = new PlaceOrder
             {
-                IsAsk                  = @params.IsAsk,
-                Quantity               = @params.Quantity,
-                Price                  = @params.Price,
-                MaxCommission          = @params.MaxCommission,
-                MarketOnly             = @params.MarketOnly,
-                PostOnly               = @params.PostOnly,
+                IsAsk = @params.IsAsk,
+                Quantity = @params.Quantity,
+                Price = @params.Price,
+                MaxCommission = @params.MaxCommission,
+                MarketOnly = @params.MarketOnly,
+                PostOnly = @params.PostOnly,
                 TransferExecutedTokens = @params.TransferExecutedTokens,
-                Expires                = @params.Expires,
+                Expires = @params.Expires,
 
-                FromAddress            = Executor.Signer.GetAddress(),
-                AmountToSend           = @params.Value,
-                GasPrice               = @params.GasPrice,
-                Gas                    = @params.GasLimit,
-                MaxFeePerGas           = @params.MaxFeePerGas,
-                MaxPriorityFeePerGas   = @params.MaxPriorityFeePerGas,
-                Nonce                  = @params.Nonce,
-                TransactionType        = @params.TransactionType
+                FromAddress = Executor.Signer.GetAddress(),
+                AmountToSend = @params.Value,
+                GasPrice = @params.GasPrice,
+                Gas = @params.GasLimit,
+                MaxFeePerGas = @params.MaxFeePerGas,
+                MaxPriorityFeePerGas = @params.MaxPriorityFeePerGas,
+                Nonce = @params.Nonce,
+                TransactionType = @params.TransactionType
             };
 
-            var txInput = placeOrder.CreateTransactionInput(@params.ContractAddress);
+            var txInput = placeOrder.CreateTransactionInput(@params.ContractAddress, @params.ChainId ?? 0);
 
             var requestParams = new TransactionRequestParams
             {
-                Tx = TxInputToTxRequest(txInput, @params.ChainId),
+                Tx = TxInputToTxRequest(txInput),
                 EstimateGas = @params.EstimateGas,
                 EstimateGasReserveInPercent = @params.EstimateGasReserveInPercent,
             };
@@ -163,26 +164,25 @@ namespace Hanji.Client
         {
             var claimOrder = new ClaimOrder
             {
-                OrderId              = @params.OrderId,
-                OnlyClaim            = @params.OnlyClaim,
-                TransferTokens       = @params.TransferTokens,
-                Expires              = @params.Expires,
+                OrderId = @params.OrderId,
+                OnlyClaim = @params.OnlyClaim,
+                TransferTokens = @params.TransferTokens,
+                Expires = @params.Expires,
 
-                FromAddress          = Executor.Signer.GetAddress(),
-                //AmountToSend         = @params.Value,
-                GasPrice             = @params.GasPrice,
-                Gas                  = @params.GasLimit,
-                MaxFeePerGas         = @params.MaxFeePerGas,
+                FromAddress = Executor.Signer.GetAddress(),
+                GasPrice = @params.GasPrice,
+                Gas = @params.GasLimit,
+                MaxFeePerGas = @params.MaxFeePerGas,
                 MaxPriorityFeePerGas = @params.MaxPriorityFeePerGas,
-                Nonce                = @params.Nonce,
-                TransactionType      = @params.TransactionType
+                Nonce = @params.Nonce,
+                TransactionType = @params.TransactionType
             };
 
-            var txInput = claimOrder.CreateTransactionInput(@params.ContractAddress);
+            var txInput = claimOrder.CreateTransactionInput(@params.ContractAddress, @params.ChainId ?? 0);
 
             var requestParams = new TransactionRequestParams
             {
-                Tx = TxInputToTxRequest(txInput, @params.ChainId),
+                Tx = TxInputToTxRequest(txInput),
                 EstimateGas = @params.EstimateGas,
                 EstimateGasReserveInPercent = @params.EstimateGasReserveInPercent,
             };
@@ -198,29 +198,29 @@ namespace Hanji.Client
         {
             var changeOrder = new ChangeOrder
             {
-                OldOrderId           = @params.OldOrderId,
-                NewQuantity          = @params.NewQuantity,
-                NewPrice             = @params.NewPrice,
-                MaxCommission        = @params.MaxCommission,
-                PostOnly             = @params.PostOnly,
-                TransferTokens       = @params.TransferTokens,
-                Expires              = @params.Expires,
+                OldOrderId = @params.OldOrderId,
+                NewQuantity = @params.NewQuantity,
+                NewPrice = @params.NewPrice,
+                MaxCommission = @params.MaxCommission,
+                PostOnly = @params.PostOnly,
+                TransferTokens = @params.TransferTokens,
+                Expires = @params.Expires,
 
-                FromAddress          = Executor.Signer.GetAddress(),
-                AmountToSend         = @params.Value,
-                GasPrice             = @params.GasPrice,
-                Gas                  = @params.GasLimit,
-                MaxFeePerGas         = @params.MaxFeePerGas,
+                FromAddress = Executor.Signer.GetAddress(),
+                AmountToSend = @params.Value,
+                GasPrice = @params.GasPrice,
+                Gas = @params.GasLimit,
+                MaxFeePerGas = @params.MaxFeePerGas,
                 MaxPriorityFeePerGas = @params.MaxPriorityFeePerGas,
-                Nonce                = @params.Nonce,
-                TransactionType      = @params.TransactionType
+                Nonce = @params.Nonce,
+                TransactionType = @params.TransactionType
             };
 
-            var txInput = changeOrder.CreateTransactionInput(@params.ContractAddress);
+            var txInput = changeOrder.CreateTransactionInput(@params.ContractAddress, @params.ChainId ?? 0);
 
             var requestParams = new TransactionRequestParams
             {
-                Tx = TxInputToTxRequest(txInput, @params.ChainId),
+                Tx = TxInputToTxRequest(txInput),
                 EstimateGas = @params.EstimateGas,
                 EstimateGasReserveInPercent = @params.EstimateGasReserveInPercent,
             };
@@ -236,26 +236,25 @@ namespace Hanji.Client
         {
             var batchClaim = new BatchClaim
             {
-                Addresses            = @params.Addresses,
-                OrderIds             = @params.OrderIds,
-                OnlyClaim            = @params.OnlyClaim,
-                Expires              = @params.Expires,
+                Addresses = @params.Addresses,
+                OrderIds = @params.OrderIds,
+                OnlyClaim = @params.OnlyClaim,
+                Expires = @params.Expires,
 
-                FromAddress          = Executor.Signer.GetAddress(),
-                //AmountToSend         = @params.Value,
-                GasPrice             = @params.GasPrice,
-                Gas                  = @params.GasLimit,
-                MaxFeePerGas         = @params.MaxFeePerGas,
+                FromAddress = Executor.Signer.GetAddress(),
+                GasPrice = @params.GasPrice,
+                Gas = @params.GasLimit,
+                MaxFeePerGas = @params.MaxFeePerGas,
                 MaxPriorityFeePerGas = @params.MaxPriorityFeePerGas,
-                Nonce                = @params.Nonce,
-                TransactionType      = @params.TransactionType
+                Nonce = @params.Nonce,
+                TransactionType = @params.TransactionType
             };
 
-            var txInput = batchClaim.CreateTransactionInput(@params.ContractAddress);
+            var txInput = batchClaim.CreateTransactionInput(@params.ContractAddress, @params.ChainId ?? 0);
 
             var requestParams = new TransactionRequestParams
             {
-                Tx = TxInputToTxRequest(txInput, @params.ChainId),
+                Tx = TxInputToTxRequest(txInput),
                 EstimateGas = @params.EstimateGas,
                 EstimateGasReserveInPercent = @params.EstimateGasReserveInPercent,
             };
@@ -271,29 +270,29 @@ namespace Hanji.Client
         {
             var batchChangeOrder = new BatchChangeOrder
             {
-                OrderIds              = @params.OrderIds,
-                Quantities            = @params.Quantities,
-                Prices                = @params.Prices,
+                OrderIds = @params.OrderIds,
+                Quantities = @params.Quantities,
+                Prices = @params.Prices,
                 MaxCommissionPerOrder = @params.MaxCommissionPerOrder,
-                PostOnly              = @params.PostOnly,
-                TransferTokens        = @params.TransferTokens,
-                Expires               = @params.Expires,
+                PostOnly = @params.PostOnly,
+                TransferTokens = @params.TransferTokens,
+                Expires = @params.Expires,
 
-                FromAddress           = Executor.Signer.GetAddress(),
-                AmountToSend          = @params.Value,
-                GasPrice              = @params.GasPrice,
-                Gas                   = @params.GasLimit,
-                MaxFeePerGas          = @params.MaxFeePerGas,
-                MaxPriorityFeePerGas  = @params.MaxPriorityFeePerGas,
-                Nonce                 = @params.Nonce,
-                TransactionType       = @params.TransactionType
+                FromAddress = Executor.Signer.GetAddress(),
+                AmountToSend = @params.Value,
+                GasPrice = @params.GasPrice,
+                Gas = @params.GasLimit,
+                MaxFeePerGas = @params.MaxFeePerGas,
+                MaxPriorityFeePerGas = @params.MaxPriorityFeePerGas,
+                Nonce = @params.Nonce,
+                TransactionType = @params.TransactionType
             };
 
-            var txInput = batchChangeOrder.CreateTransactionInput(@params.ContractAddress);
+            var txInput = batchChangeOrder.CreateTransactionInput(@params.ContractAddress, @params.ChainId ?? 0);
 
             var requestParams = new TransactionRequestParams
             {
-                Tx = TxInputToTxRequest(txInput, @params.ChainId),
+                Tx = TxInputToTxRequest(txInput),
                 EstimateGas = @params.EstimateGas,
                 EstimateGasReserveInPercent = @params.EstimateGasReserveInPercent,
             };
@@ -303,16 +302,14 @@ namespace Hanji.Client
                 cancellationToken);
         }
 
-        private TransactionRequestBase TxInputToTxRequest(
-            TransactionInput transactionInput,
-            BigInteger? chainId = null)
+        private TransactionRequestBase TxInputToTxRequest(TransactionInput transactionInput)
         {
             var transactionType = transactionInput.Type?.Value ?? 0;
 
             return (int)transactionType switch
             {
                 0 => new TransactionLegacyRequest(transactionInput),
-                2 => new Transaction1559Request(transactionInput, chainId ?? 0),
+                2 => new Transaction1559Request(transactionInput),
                 _ => throw new NotImplementedException()
             };
         }

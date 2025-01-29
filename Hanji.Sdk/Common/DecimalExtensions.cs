@@ -1,20 +1,24 @@
-﻿namespace Hanji.Common
+﻿using System.Numerics;
+
+namespace Hanji.Common
 {
     public static class DecimalExtensions
     {
-        private const int PRICE_SIGNIFICANT_DIGITS = 6;
-
-        public static ulong ToHanjiPrice(this decimal price, int precision)
+        public static (BigInteger numerator, BigInteger denominator) Fraction(this decimal d)
         {
-            var multiplier = (decimal)Math.Pow(10, precision);
-            var longPrice = (ulong)(price * multiplier);
-            return longPrice.ResetLowDigits(PRICE_SIGNIFICANT_DIGITS);
+            var bits = decimal.GetBits(d);
+            var numerator = (1 - ((bits[3] >> 30) & 2)) *
+                unchecked(((BigInteger)(uint)bits[2] << 64) |
+                          ((BigInteger)(uint)bits[1] << 32) |
+                           (BigInteger)(uint)bits[0]);
+            var denominator = BigInteger.Pow(10, (bits[3] >> 16) & 0xff);
+            return (numerator, denominator);
         }
 
-        public static decimal FromHanjiPrice(this decimal price, int precision)
+        public static BigInteger Multiply(this decimal a, BigInteger b)
         {
-            var multiplier = (decimal)Math.Pow(10, precision);
-            return price / multiplier;
+            var (numerator, denominator) = a.Fraction();
+            return b * numerator / denominator;
         }
     }
 }

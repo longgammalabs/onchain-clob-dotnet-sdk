@@ -4,8 +4,8 @@ using System.Numerics;
 
 namespace Hanji.Abi.LobFactory
 {
-    [Function("createHanjiLOB", "address")]
-    public class CreateHanjiLob : FunctionMessage
+    [Function("createOnchainCLOB", "address")]
+    public class CreateOnchainCLOB : FunctionMessage
     {
         [Parameter("address", "tokenXAddress", 1)]
         public string TokenXAddress { get; set; } = default!;

@@ -2,11 +2,13 @@
 {
     public interface ISymbolConfig
     {
-        string ContractAddress { get; init; }
-        string Symbol { get; init; }
-        int ScallingFactorX { get; init; }
-        int ScallingFactorY { get; init; }
-        int PricePrecision { get; init; }
-        string NetworkId { get; init; }
+        string ContractAddress { get; }
+        string Symbol { get; }
+        int ScallingFactorX { get; }
+        int ScallingFactorY { get; }
+        TokenConfig TokenX { get; }
+        TokenConfig TokenY { get; }
+        int PricePrecision => TokenY.Decimals - ScallingFactorY - (TokenX.Decimals - ScallingFactorX);
+        bool UseNative { get; }
     }
 }

@@ -34,18 +34,18 @@ namespace Hanji.Common
             };
 
             return new Order(
-                OrderId:     o.OrderId,
-                Price:       decimal.Parse(o.Price).FromHanjiPrice(pricePrecision),
-                Qty:         qty,
-                LeaveQty:    leaveQty,
-                ClaimedQty:  claimedQty,
-                Side:        side,
-                Symbol:      symbol,
-                Status:      status,
-                Type:        OrderType.Return,
-                Created:     DateTimeOffset.FromUnixTimeMilliseconds(o.CreatedAt),
+                OrderId: o.OrderId,
+                Price: ulong.Parse(o.Price).FromHanjiPrice(pricePrecision),
+                Qty: qty,
+                LeaveQty: leaveQty,
+                ClaimedQty: claimedQty,
+                Side: side,
+                Symbol: symbol,
+                Status: status,
+                Type: OrderType.Return,
+                Created: DateTimeOffset.FromUnixTimeMilliseconds(o.CreatedAt),
                 LastChanged: DateTimeOffset.FromUnixTimeMilliseconds(o.LastTouched),
-                TxnHash:     o.TxnHash);
+                TxnHash: o.TxnHash);
         }
     }
 }

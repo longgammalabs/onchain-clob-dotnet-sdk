@@ -3,14 +3,14 @@ using System.Numerics;
 
 namespace Hanji.Abi.LobFactory.Events
 {
-    [Event("HanjiLOBCreated")]
-    public class HanjiLobCreatedEventDTO
+    [Event("OnchainCLOBCreated")]
+    public class OnchainClobCreatedEventDTO
     {
         [Parameter("address", "creator", 1, true)]
         public string Creator { get; set; } = default!;
 
-        [Parameter("address", "hanjiLOB", 2)]
-        public string HanjiLOB { get; set; } = default!;
+        [Parameter("address", "OnchainCLOB", 2)]
+        public string OnchainCLOB { get; set; } = default!;
 
         [Parameter("address", "tokenXAddress", 3)]
         public string TokenXAddress { get; set; } = default!;
