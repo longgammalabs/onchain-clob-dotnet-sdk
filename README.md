@@ -1,9 +1,9 @@
-# Hanji .NET SDK
+# OnchainClob .NET SDK
 
-The Hanji .NET SDK is a library that simplifies the interaction with the Hanji API, allowing developers to easily access and manipulate data related to the Hanji platform.
+.NET integration library for onchain central limit order book (CLOB). This SDK provides a simple way to interact with onchain CLOB smart contracts, APIs, enabling order management, market data access, and trading functionality.
 
 ## Getting started
 
 ### Installation
 
-`PM> Install-Package Hanji.Sdk`
+`PM> Install-Package OnchainClob.Sdk`

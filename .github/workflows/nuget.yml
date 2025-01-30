@@ -16,9 +16,9 @@ jobs:
         with:
           token: ${{ secrets.PAT }}
 
-      - name: Build and publish Hanji.Sdk if version changed
+      - name: Build and publish OnchainClob.Sdk if version changed
         uses: alirezanet/publish-nuget@v3.0.3
         with:
-          PROJECT_FILE_PATH: Hanji.Sdk/Hanji.Sdk.csproj
-          PACKAGE_NAME: Hanji.Sdk
+          PROJECT_FILE_PATH: OnchainClob.Sdk/OnchainClob.Sdk.csproj
+          PACKAGE_NAME: OnchainClob.Sdk
           NUGET_KEY: ${{ secrets.NUGET_KEY }}
