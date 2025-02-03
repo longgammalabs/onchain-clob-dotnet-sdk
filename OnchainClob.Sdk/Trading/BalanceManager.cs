@@ -2,6 +2,7 @@
 using Nethereum.Contracts;
 using OnchainClob.Abi.Lob;
 using OnchainClob.Client.Configuration;
+using OnchainClob.Common;
 using Revelium.Evm.Common;
 using Revelium.Evm.Rpc;
 using Revelium.Evm.Rpc.Parameters;
@@ -10,11 +11,18 @@ using Error = Incendium.Error;
 
 namespace OnchainClob.Trading
 {
-    public readonly struct Balance {
+    public readonly struct Balances {
         public BigInteger NativeBalance { get; init; }
-        public BigInteger TokenBalance { get; init; }
-        public BigInteger LobBalance { get; init; }
-        public bool IsNative { get; init; }
+        public BigInteger TokenBalanceX { get; init; }
+        public BigInteger TokenBalanceY { get; init; }
+        public BigInteger LobBalanceX { get; init; }
+        public BigInteger LobBalanceY { get; init; }
+
+        public BigInteger GetTokenBalanceBySide(Side side) =>
+            side == Side.Sell ? TokenBalanceX : TokenBalanceY;
+
+        public BigInteger GetLobBalanceBySide(Side side) =>
+            side == Side.Sell ? LobBalanceX : LobBalanceY;
     }
 
     public class BalanceManager
@@ -130,32 +138,30 @@ namespace OnchainClob.Trading
             );
         }
 
-        public async Task<Result<Balance>> GetAvailableBalanceAsync(
-            string tokenContractAddress,
+        public async Task<Result<Balances>> GetAvailableBalancesAsync(
             string lobContractAddress,
+            string? tokenContractAddress = null,
             bool forceUpdate = true,
             CancellationToken cancellationToken = default)
         {
-            if (!_symbolConfigs.TryGetValue(lobContractAddress, out var symbolConfig)) {
+            if (!_symbolConfigs.TryGetValue(lobContractAddress, out var symbolConfig))
+            {
                 return new Error($"Symbol config not found for contract address {lobContractAddress}");
             }
 
             if (!forceUpdate)
             {
-                var cachedTokenBalance = GetCachedTokenBalance(tokenContractAddress);
-
-                var cachedLobBalance = symbolConfig.TokenX.ContractAddress == tokenContractAddress
-                    ? _lobBalancesTokenX[lobContractAddress]
-                    : _lobBalancesTokenY[lobContractAddress];
-
-                return new Balance
+                return new Balances
                 {
                     NativeBalance = _nativeBalance,
-                    TokenBalance = cachedTokenBalance,
-                    LobBalance = cachedLobBalance,
-                    IsNative = symbolConfig.IsNative(tokenContractAddress)
+                    TokenBalanceX = GetCachedTokenBalance(symbolConfig.TokenX.ContractAddress),
+                    TokenBalanceY = GetCachedTokenBalance(symbolConfig.TokenY.ContractAddress),
+                    LobBalanceX = _lobBalancesTokenX[lobContractAddress],
+                    LobBalanceY = _lobBalancesTokenY[lobContractAddress],
                 };
             }
+
+            // TODO: Use RPC batching to get all balances in one call
 
             var (nativeBalance, nativeBalanceError) = await GetNativeBalanceAsync(
                 forceUpdate,
@@ -164,13 +170,34 @@ namespace OnchainClob.Trading
             if (nativeBalanceError != null)
                 return nativeBalanceError;
 
-            var (tokenBalance, tokenBalanceError) = await GetTokenBalanceAsync(
-                tokenContractAddress,
-                forceUpdate,
-                cancellationToken);
+            var tokenBalanceX = BigInteger.Zero;
+            Error? tokenBalanceError;
 
-            if (tokenBalanceError != null)
-                return tokenBalanceError;
+            if (tokenContractAddress == null ||
+                (tokenContractAddress != null && tokenContractAddress == symbolConfig.TokenX.ContractAddress))
+            {
+                (tokenBalanceX, tokenBalanceError) = await GetTokenBalanceAsync(
+                    symbolConfig.TokenX.ContractAddress,
+                    forceUpdate,
+                    cancellationToken);
+
+                if (tokenBalanceError != null)
+                    return tokenBalanceError;
+            }
+
+            var tokenBalanceY = BigInteger.Zero;
+
+            if (tokenContractAddress == null ||
+                (tokenContractAddress != null && tokenContractAddress == symbolConfig.TokenY.ContractAddress))
+            {
+                (tokenBalanceY, tokenBalanceError) = await GetTokenBalanceAsync(
+                    symbolConfig.TokenY.ContractAddress,
+                    forceUpdate,
+                    cancellationToken);
+
+                if (tokenBalanceError != null)
+                    return tokenBalanceError;
+            }
 
             var (lobBalances, lobBalanceError) = await GetLobBalancesAsync(
                 symbolConfig,
@@ -180,16 +207,13 @@ namespace OnchainClob.Trading
             if (lobBalanceError != null)
                 return lobBalanceError;
 
-            var lobBalance = symbolConfig.TokenX.ContractAddress == tokenContractAddress
-                ? lobBalances.tokenX
-                : lobBalances.tokenY;
-
-            return new Balance
+            return new Balances
             {
                 NativeBalance = nativeBalance,
-                TokenBalance = tokenBalance,
-                LobBalance = lobBalance,
-                IsNative = symbolConfig.IsNative(tokenContractAddress)
+                TokenBalanceX = tokenBalanceX,
+                TokenBalanceY = tokenBalanceY,
+                LobBalanceX = lobBalances.tokenX,
+                LobBalanceY = lobBalances.tokenY
             };
         }
 

@@ -36,6 +36,7 @@ namespace OnchainClob.Trading
         private readonly WebSocketClient _webSocketClient;
         private readonly RestApi _restApi;
         private readonly Spot _spot;
+        private readonly BalanceManager _balanceManager;
         private readonly RpcClient _rpc;
         private readonly GasLimits? _defaultGasLimits;
         private readonly ILogger<SpotTrader>? _logger;
@@ -70,6 +71,7 @@ namespace OnchainClob.Trading
             WebSocketClient webSocketClient,
             RestApi restApi,
             Spot spot,
+            BalanceManager balanceManager,
             RpcClient rpc,
             GasLimits? defaultGasLimits = null,
             ILogger<SpotTrader>? logger = null)
@@ -90,6 +92,7 @@ namespace OnchainClob.Trading
             _spot.Executor.TxFailed += Executor_TxFailed;
             _spot.Executor.Error += Executor_Error;
 
+            _balanceManager = balanceManager ?? throw new ArgumentNullException(nameof(balanceManager));
             _rpc = rpc ?? throw new ArgumentNullException(nameof(rpc));
 
             _ordersSync = new SemaphoreSlim(initialCount: 1, maxCount: 1);
@@ -144,17 +147,19 @@ namespace OnchainClob.Trading
             bool transferExecutedTokens = false,
             CancellationToken cancellationToken = default)
         {
-            var fromAddress = _spot.Executor.Signer.GetAddress();
+            var fromToken = side == Side.Sell
+                ? _symbolConfig.TokenX
+                : _symbolConfig.TokenY;
 
-            // get native balance
-            var (balance, balanceError) = await _rpc.GetBalanceAsync(
-                fromAddress,
-                BlockNumber.Pending,
+            var (balances, balancesError) = await _balanceManager.GetAvailableBalancesAsync(
+                _symbolConfig.ContractAddress,
+                fromToken.ContractAddress,
+                forceUpdate: true,
                 cancellationToken);
 
-            if (balanceError != null)
+            if (balancesError != null)
             {
-                _logger?.LogError(balanceError, "Get balance error");
+                _logger?.LogError(balancesError, "[{@symbol}] Get available balances error", Symbol);
                 return;
             }
 
@@ -164,37 +169,24 @@ namespace OnchainClob.Trading
 
             if (maxPriorityFeeError != null)
             {
-                _logger?.LogError(maxPriorityFeeError, "Get max prirority fee per gas error");
+                _logger?.LogError(maxPriorityFeeError, "[{@symbol}] Get max prirority fee per gas error", Symbol);
                 return;
             }
 
             var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
             var maxFee = maxFeePerGas * (_defaultGasLimits?.PlaceOrder ?? 0);
 
-            if (balance < maxFee)
+            if (balances.NativeBalance < maxFee)
             {
                 _logger?.LogError(
                     "[{@symbol}] Insufficient native token balance for PlaceOrder fee. " +
-                        "Balance: {@balance}. " +
+                        "Native balance: {@nativeBalance}. " +
                         "Max fee: {@fee}.",
                     Symbol,
-                    balance,
+                    balances.NativeBalance,
                     maxFee);
                 return;
             }
-
-            // get trader balance
-            var (traderBalance, traderBalanceError) = await GetTraderBalanceAsync(fromAddress, cancellationToken);
-
-            if (traderBalanceError != null)
-            {
-                _logger?.LogError(traderBalanceError, "Get trader balance error");
-                return;
-            }
-
-            var contractBalance = side == Side.Sell
-                ? traderBalance.TokenX * BigInteger.Pow(10, _symbolConfig.ScallingFactorX)
-                : traderBalance.TokenY * BigInteger.Pow(10, _symbolConfig.ScallingFactorY);
 
             if (!TryNormalizePrice(price, out var normalizedPrice))
                 throw new Exception($"Invalid significant digits count or size for price {price}");
@@ -206,25 +198,21 @@ namespace OnchainClob.Trading
                 ? normalizedQty * BigInteger.Pow(10, _symbolConfig.ScallingFactorX)
                 : normalizedQty * normalizedPrice * BigInteger.Pow(10, _symbolConfig.ScallingFactorY);
 
-            var fromToken = side == Side.Sell
-                ? _symbolConfig.TokenX
-                : _symbolConfig.TokenY;
-
             var isFromNative = _symbolConfig.UseNative && fromToken.IsNative;
 
             if (isFromNative)
             {
-                if (balance + contractBalance < inputAmount + maxFee)
+                if (balances.NativeBalance + balances.GetLobBalanceBySide(side) < inputAmount + maxFee)
                 {
                     _logger?.LogError(
                         "[{@symbol}] Insufficient native token balance for PlaceOrder. " +
-                        "Balance: {@balance}. " +
-                        "Contract balance: {@contractBalance}. " +
+                        "Native balance: {@nativeBalance}. " +
+                        "Lob balance: {@lobBalance}. " +
                         "Input amount: {@inputAmount}. " +
                         "Max fee: {@maxFee}.",
                         Symbol,
-                        balance,
-                        contractBalance,
+                        balances.NativeBalance,
+                        balances.GetLobBalanceBySide(side),
                         inputAmount,
                         maxFee);
                     return;
@@ -232,28 +220,16 @@ namespace OnchainClob.Trading
             }
             else
             {
-                var (tokenBalance, tokenBalanceError) = await _rpc.GetErc20TokenBalanceAsync(
-                    fromToken.ContractAddress,
-                    fromAddress,
-                    BlockNumber.Pending,
-                    cancellationToken);
-
-                if (tokenBalanceError != null)
-                {
-                    _logger?.LogError(tokenBalanceError, "Get token balance error");
-                    return;
-                }
-
-                if (tokenBalance + contractBalance < inputAmount)
+                if (balances.GetTokenBalanceBySide(side) + balances.GetLobBalanceBySide(side) < inputAmount)
                 {
                     _logger?.LogError(
                         "[{@symbol}] Insufficient token balance for PlaceOrder. " +
                         "Token balance: {@balance}. " +
-                        "Contract balance: {@contractBalance}. " +
+                        "Lob balance: {@lobBalance}. " +
                         "Input amount: {@inputAmount}.",
                         Symbol,
-                        tokenBalance,
-                        contractBalance,
+                        balances.GetTokenBalanceBySide(side),
+                        balances.GetLobBalanceBySide(side),
                         inputAmount);
                     return;
                 }
@@ -262,8 +238,8 @@ namespace OnchainClob.Trading
             var expiration = DateTimeOffset.UtcNow.AddSeconds(DEFAULT_EXPIRED_SEC).ToUnixTimeSeconds();
 
             var nativeTokenValue = isFromNative
-                ? inputAmount > contractBalance
-                    ? inputAmount - contractBalance
+                ? inputAmount > balances.GetLobBalanceBySide(side)
+                    ? inputAmount - balances.GetLobBalanceBySide(side)
                     : 0
                 : 0;
 
@@ -319,17 +295,14 @@ namespace OnchainClob.Trading
             if (!_canceledOrders.TryAdd(orderId, DateTimeOffset.UtcNow))
                 return false;
 
-            var fromAddress = _spot.Executor.Signer.GetAddress();
-
             // get native balance
-            var (balance, balanceError) = await _rpc.GetBalanceAsync(
-                fromAddress,
-                BlockNumber.Pending,
+            var (balance, balanceError) = await _balanceManager.GetNativeBalanceAsync(
+                forceUpdate: true,
                 cancellationToken);
 
             if (balanceError != null)
             {
-                _logger?.LogError(balanceError, "Get balance error");
+                _logger?.LogError(balanceError, "[{@symbol}] Get native balance error", Symbol);
                 return false;
             }
 
@@ -398,17 +371,20 @@ namespace OnchainClob.Trading
             if (orderId > 1 && !_canceledOrders.TryAdd(orderId, DateTimeOffset.UtcNow))
                 return false;
 
-            var fromAddress = _spot.Executor.Signer.GetAddress();
+            var side = orderId.GetSideFromOrderId();
+            var fromToken = side == Side.Sell
+                ? _symbolConfig.TokenX
+                : _symbolConfig.TokenY;
 
-            // get native balance
-            var (balance, balanceError) = await _rpc.GetBalanceAsync(
-                fromAddress,
-                BlockNumber.Pending,
+            var (balances, balancesError) = await _balanceManager.GetAvailableBalancesAsync(
+                _symbolConfig.ContractAddress,
+                fromToken.ContractAddress,
+                forceUpdate: true,
                 cancellationToken);
 
-            if (balanceError != null)
+            if (balancesError != null)
             {
-                _logger?.LogError(balanceError, "Get balance error");
+                _logger?.LogError(balancesError, "[{@symbol}] Get available balances error", Symbol);
                 return false;
             }
 
@@ -425,14 +401,14 @@ namespace OnchainClob.Trading
             var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
             var maxFee = maxFeePerGas * (_defaultGasLimits?.ChangeOrder ?? 0);
 
-            if (balance < maxFee)
+            if (balances.NativeBalance < maxFee)
             {
                 _logger?.LogError(
                     "[{@symbol}] Insufficient native token balance for ChangeOrder fee. " +
-                        "Balance: {@balance}. " +
+                        "Native balance: {@nativeBalance}. " +
                         "Max fee: {@fee}.",
                     Symbol,
-                    balance,
+                    balances.NativeBalance,
                     maxFee);
                 return false;
             }
@@ -443,65 +419,34 @@ namespace OnchainClob.Trading
             if (!TryNormalizeQty(qty, out var normalizedQty))
                 throw new Exception($"Invalid qty {qty}");
 
-            var side = orderId.GetSideFromOrderId();
             var nativeTokenValue = BigInteger.Zero;
 
             if (qty > 0)
             {
-                var previousLeaveAmount = BigInteger.Zero;
-
-                if (orderId > 1)
-                {
-                    var order = _activeOrders[orderId.ToString()];
-
-                    if (!TryNormalizePrice(order.Price, out var previousNormalizedPrice))
-                        throw new Exception($"Invalid significant digits count or size for price {order.Price}");
-
-                    if (!TryNormalizeQty(order.LeaveQty, out var previousNormalizedQty))
-                        throw new Exception($"Invalid leaveqty {order.LeaveQty}");
-
-                    previousLeaveAmount = side == Side.Sell
-                        ? previousNormalizedQty * BigInteger.Pow(10, _symbolConfig.ScallingFactorX)
-                        : previousNormalizedQty * previousNormalizedPrice * BigInteger.Pow(10, _symbolConfig.ScallingFactorY);
-                }
-
-                // get trader balance
-                var (traderBalance, traderBalanceError) = await GetTraderBalanceAsync(fromAddress, cancellationToken);
-
-                if (traderBalanceError != null)
-                {
-                    _logger?.LogError(traderBalanceError, "Get trader balance error");
-                    return false;
-                }
-
-                var contractBalance = side == Side.Sell
-                    ? traderBalance.TokenX * BigInteger.Pow(10, _symbolConfig.ScallingFactorX)
-                    : traderBalance.TokenY * BigInteger.Pow(10, _symbolConfig.ScallingFactorY);
+                var previousLeaveAmount = orderId > 1
+                    ? GetPreviousLeaveAmount(_activeOrders[orderId.ToString()], side)
+                    : BigInteger.Zero;
 
                 var inputAmount = side == Side.Sell
                     ? normalizedQty * BigInteger.Pow(10, _symbolConfig.ScallingFactorX)
                     : normalizedQty * normalizedPrice * BigInteger.Pow(10, _symbolConfig.ScallingFactorY);
 
-                var fromToken = side == Side.Sell
-                    ? _symbolConfig.TokenX
-                    : _symbolConfig.TokenY;
-
                 var isFromNative = _symbolConfig.UseNative && fromToken.IsNative;
 
                 if (isFromNative)
                 {
-                    if (balance + contractBalance + previousLeaveAmount < inputAmount + maxFee)
+                    if (balances.NativeBalance + balances.GetLobBalanceBySide(side) + previousLeaveAmount < inputAmount + maxFee)
                     {
                         _logger?.LogError(
                             "[{@symbol}] Insufficient native token balance for ChangeOrder. " +
-                            "Balance: {@balance}. " +
-                            "Contract balance: {@contractBalance}. " +
+                            "Native balance: {@nativeBalance}. " +
+                            "Lob balance: {@lobBalance}. " +
                             "Previous leave amount: {@previousLeaveAmount}. " +
                             "Input amount: {@inputAmount}. " +
                             "Max fee: {@maxFee}.",
                             Symbol,
-                            balance,
-                            contractBalance,
+                            balances.NativeBalance,
+                            balances.GetLobBalanceBySide(side),
                             previousLeaveAmount,
                             inputAmount,
                             maxFee);
@@ -510,29 +455,17 @@ namespace OnchainClob.Trading
                 }
                 else
                 {
-                    var (tokenBalance, tokenBalanceError) = await _rpc.GetErc20TokenBalanceAsync(
-                        fromToken.ContractAddress,
-                        fromAddress,
-                        BlockNumber.Pending,
-                        cancellationToken);
-
-                    if (tokenBalanceError != null)
-                    {
-                        _logger?.LogError(tokenBalanceError, "Get token balance error");
-                        return false;
-                    }
-
-                    if (tokenBalance + contractBalance + previousLeaveAmount < inputAmount)
+                    if (balances.GetTokenBalanceBySide(side) + balances.GetLobBalanceBySide(side) + previousLeaveAmount < inputAmount)
                     {
                         _logger?.LogError(
                             "[{@symbol}] Insufficient token balance for ChangeOrder. " +
                             "Token balance: {@balance}. " +
-                            "Contract balance: {@contractBalance}. " +
+                            "Lob balance: {@lobBalance}. " +
                             "Previous leave amount: {@previousLeaveAmount}. " +
                             "Input amount: {@inputAmount}.",
                             Symbol,
-                            tokenBalance,
-                            contractBalance,
+                            balances.GetTokenBalanceBySide(side),
+                            balances.GetLobBalanceBySide(side),
                             previousLeaveAmount,
                             inputAmount);
                         return false;
@@ -540,8 +473,8 @@ namespace OnchainClob.Trading
                 }
 
                 nativeTokenValue = isFromNative
-                    ? inputAmount > contractBalance + previousLeaveAmount
-                        ? inputAmount - contractBalance - previousLeaveAmount
+                    ? inputAmount > balances.GetLobBalanceBySide(side) + previousLeaveAmount
+                        ? inputAmount - balances.GetLobBalanceBySide(side) - previousLeaveAmount
                         : 0
                     : 0;
             }
@@ -598,35 +531,6 @@ namespace OnchainClob.Trading
             return true;
         }
 
-        public async Task<bool> PendingOrderCancelAsync(
-            string placeOrderRequestId,
-            CancellationToken cancellationToken = default)
-        {
-            var isCanceled = await _spot.Executor.TryCancelRequestAsync(
-                placeOrderRequestId,
-                cancellationToken);
-
-            if (isCanceled)
-            {
-                if (!_pendingOrders.Remove(placeOrderRequestId, out var pendingOrders))
-                    return true;
-
-                _logger?.LogDebug(
-                    "[{@symbol}] {@count} pending orders removed for request id {@id} before tx sending",
-                    Symbol, pendingOrders.Count, placeOrderRequestId);
-
-                pendingOrders = [.. pendingOrders.Select(o => o with { Status = OrderStatus.CanceledAndClaimed })];
-
-                OrdersChanged?.Invoke(this, pendingOrders);
-            }
-            else
-            {
-                // the transaction is already in the mempool and we need to wait for the orderId or tx failure
-            }
-
-            return isCanceled;
-        }
-
         public async Task BatchAsync(
             IEnumerable<IOnchainClobRequest> requests,
             bool postOnly = false,
@@ -641,8 +545,6 @@ namespace OnchainClob.Trading
             requests = requests
                 .Where(r => r is not CancelPendingOrderRequest)
                 .OrderByDescending(r => r.Priority);
-
-            var fromAddress = _spot.Executor.Signer.GetAddress();
 
             // get max priority fee per gas
             var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
@@ -659,47 +561,30 @@ namespace OnchainClob.Trading
             foreach (var (batchGasLimit, batchRequests) in SplitIntoSeveralBatches(requests))
             {
                 var orderIds = batchRequests.Select(r => r.OrderId).ToList();
-
-                var prices = batchRequests
-                    .Select(r =>
-                    {
-                        if (!TryNormalizePrice(r.Price, out var normalizedPrice))
-                            throw new Exception($"Invalid significant digits count or size for price {r.Price}");
-                        return (BigInteger)normalizedPrice;
-                    })
-                    .ToList();
-
-                var qtys = batchRequests
-                    .Select(r =>
-                    {
-                        if (!TryNormalizeQty(r.Qty, out var normalizedQty))
-                            throw new Exception($"Invalid qty {r.Qty}");
-                        return normalizedQty;
-                    })
-                    .ToList();
-
+                var prices = GetNormalizedPrices(batchRequests);
+                var qtys = GetNormalizedQtys(batchRequests);
                 var maxFee = maxFeePerGas * batchGasLimit ?? 0;
 
-                // get native balance
-                var (balance, balanceError) = await _rpc.GetBalanceAsync(
-                    fromAddress,
-                    BlockNumber.Pending,
+                var (balances, balancesError) = await _balanceManager.GetAvailableBalancesAsync(
+                    _symbolConfig.ContractAddress,
+                    tokenContractAddress: null,
+                    forceUpdate: true,
                     cancellationToken);
 
-                if (balanceError != null)
+                if (balancesError != null)
                 {
-                    _logger?.LogError(balanceError, "Get balance error");
+                    _logger?.LogError(balancesError, "Get available balances error");
                     return;
                 }
 
-                if (balance < maxFee)
+                if (balances.NativeBalance < maxFee)
                 {
                     _logger?.LogError(
                         "[{@symbol}] Insufficient native token balance for BatchChangeOrder fee. " +
-                            "Balance: {@balance}. " +
+                            "Native balance: {@balance}. " +
                             "Max fee: {@fee}.",
                         Symbol,
-                        balance,
+                        balances.NativeBalance,
                         maxFee);
                     return;
                 }
@@ -708,48 +593,11 @@ namespace OnchainClob.Trading
 
                 if (qtys.Any(q => q > 0))
                 {
-                    // get trader balance
-                    var (traderBalance, traderBalanceError) = await GetTraderBalanceAsync(fromAddress, cancellationToken);
-
-                    if (traderBalanceError != null)
-                    {
-                        _logger?.LogError(traderBalanceError, "Get trader balance error");
-                        return;
-                    }
-
                     // check balances for both sides and calculate native token value
-                    foreach (var side in new Side[]{Side.Buy, Side.Sell})
+                    foreach (var side in new Side[] { Side.Buy, Side.Sell })
                     {
-                        var previousLeaveAmount = orderIds
-                            .Where(orderId => orderId > 0)
-                            .Select(orderId => _activeOrders[orderId.ToString()])
-                            .Where(order => order.Side == side)
-                            .Select(order => {
-                                if (!TryNormalizePrice(order.Price, out var normalizedPrice))
-                                    throw new Exception($"Invalid significant digits count or size for price {order.Price}");
-
-                                if (!TryNormalizeQty(order.LeaveQty, out var normalizedQty))
-                                    throw new Exception($"Invalid leave qty {order.LeaveQty}");
-
-                                return side == Side.Sell
-                                    ? normalizedQty * BigInteger.Pow(10, _symbolConfig.ScallingFactorX)
-                                    : normalizedQty * normalizedPrice * BigInteger.Pow(10, _symbolConfig.ScallingFactorY);
-                            })
-                            .Aggregate(BigInteger.Zero, (acc, value) => acc + value);
-
-                        var contractBalance = side == Side.Sell
-                            ? traderBalance.TokenX * BigInteger.Pow(10, _symbolConfig.ScallingFactorX)
-                            : traderBalance.TokenY * BigInteger.Pow(10, _symbolConfig.ScallingFactorY);
-
-                        var inputAmount = orderIds
-                            .Select((orderId, index) => {
-                                if (qtys[index] > 0) {
-                                    return side == Side.Sell
-                                        ? qtys[index] * BigInteger.Pow(10, _symbolConfig.ScallingFactorX)
-                                        : qtys[index] * prices[index] * BigInteger.Pow(10, _symbolConfig.ScallingFactorY);
-                                }
-                                else return BigInteger.Zero;
-                            }).Aggregate(BigInteger.Zero, (acc, value) => acc + value);
+                        var previousLeaveAmount = GetPreviousLeaveAmount(orderIds, side);
+                        var inputAmount = GetInputAmount(orderIds, prices, qtys, side);
 
                         // if there is no input amount for this side, skip it
                         if (inputAmount == 0)
@@ -763,18 +611,18 @@ namespace OnchainClob.Trading
 
                         if (isFromNative)
                         {
-                            if (balance + contractBalance + previousLeaveAmount < inputAmount + maxFee)
+                            if (balances.NativeBalance + balances.GetLobBalanceBySide(side) + previousLeaveAmount < inputAmount + maxFee)
                             {
                                 _logger?.LogError(
                                     "[{@symbol}] Insufficient native token balance for BatchChangeOrder. " +
-                                    "Balance: {@balance}. " +
-                                    "Contract balance: {@contractBalance}. " +
+                                    "Native balance: {@nativeBalance}. " +
+                                    "Lob balance: {@lobBalance}. " +
                                     "Previous leave amount: {@previousLeaveAmount}. " +
                                     "Input amount: {@inputAmount}. " +
                                     "Max fee: {@maxFee}.",
                                     Symbol,
-                                    balance,
-                                    contractBalance,
+                                    balances.NativeBalance,
+                                    balances.GetLobBalanceBySide(side),
                                     previousLeaveAmount,
                                     inputAmount,
                                     maxFee);
@@ -783,29 +631,17 @@ namespace OnchainClob.Trading
                         }
                         else
                         {
-                            var (tokenBalance, tokenBalanceError) = await _rpc.GetErc20TokenBalanceAsync(
-                                fromToken.ContractAddress,
-                                fromAddress,
-                                BlockNumber.Pending,
-                                cancellationToken);
-
-                            if (tokenBalanceError != null)
-                            {
-                                _logger?.LogError(tokenBalanceError, "Get token balance error");
-                                return;
-                            }
-
-                            if (tokenBalance + contractBalance + previousLeaveAmount < inputAmount)
+                            if (balances.GetTokenBalanceBySide(side) + balances.GetLobBalanceBySide(side) + previousLeaveAmount < inputAmount)
                             {
                                 _logger?.LogError(
                                     "[{@symbol}] Insufficient token balance for ChangeOrder. " +
                                     "Token balance: {@balance}. " +
-                                    "Contract balance: {@contractBalance}. " +
+                                    "Lob balance: {@lobBalance}. " +
                                     "Previous leave amount: {@previousLeaveAmount}. " +
                                     "Input amount: {@inputAmount}.",
                                     Symbol,
-                                    tokenBalance,
-                                    contractBalance,
+                                    balances.GetTokenBalanceBySide(side),
+                                    balances.GetLobBalanceBySide(side),
                                     previousLeaveAmount,
                                     inputAmount);
                                 return;
@@ -813,8 +649,8 @@ namespace OnchainClob.Trading
                         }
 
                         nativeTokenValue += isFromNative
-                            ? inputAmount > contractBalance + previousLeaveAmount
-                                ? inputAmount - contractBalance - previousLeaveAmount
+                            ? inputAmount > balances.GetLobBalanceBySide(side) + previousLeaveAmount
+                                ? inputAmount - balances.GetLobBalanceBySide(side) - previousLeaveAmount
                                 : 0
                             : 0;
                     }
@@ -909,25 +745,99 @@ namespace OnchainClob.Trading
             }
         }
 
-        public async Task<Result<GetTraderBalanceOutput>> GetTraderBalanceAsync(
-            string address,
+        public async Task<bool> PendingOrderCancelAsync(
+            string placeOrderRequestId,
             CancellationToken cancellationToken = default)
         {
-            var getTraderBalance = new GetTraderBalance()
+            var isCanceled = await _spot.Executor.TryCancelRequestAsync(
+                placeOrderRequestId,
+                cancellationToken);
+
+            if (isCanceled)
             {
-                Address = address
-            };
+                if (!_pendingOrders.Remove(placeOrderRequestId, out var pendingOrders))
+                    return true;
 
-            var (hexResult, error) = await _rpc.CallAsync<string>(
-                to: _symbolConfig.ContractAddress,
-                from: address,
-                input: getTraderBalance.CreateTransactionInput(_symbolConfig.ContractAddress).Data,
-                cancellationToken: cancellationToken);
+                _logger?.LogDebug(
+                    "[{@symbol}] {@count} pending orders removed for request id {@id} before tx sending",
+                    Symbol, pendingOrders.Count, placeOrderRequestId);
 
-            if (error != null)
-                return error;
+                pendingOrders = [.. pendingOrders.Select(o => o with { Status = OrderStatus.CanceledAndClaimed })];
 
-            return new GetTraderBalanceOutput().DecodeOutput(hexResult);
+                OrdersChanged?.Invoke(this, pendingOrders);
+            }
+            else
+            {
+                // the transaction is already in the mempool and we need to wait for the orderId or tx failure
+            }
+
+            return isCanceled;
+        }
+
+        private BigInteger GetInputAmount(
+            List<ulong> orderIds,
+            List<BigInteger> prices,
+            List<BigInteger> qtys,
+            Side side)
+        {
+            return orderIds
+                .Select((orderId, index) =>
+                {
+                    if (qtys[index] > 0)
+                    {
+                        return side == Side.Sell
+                            ? qtys[index] * BigInteger.Pow(10, _symbolConfig.ScallingFactorX)
+                            : qtys[index] * prices[index] * BigInteger.Pow(10, _symbolConfig.ScallingFactorY);
+                    }
+                    else return BigInteger.Zero;
+                }).Aggregate(BigInteger.Zero, (acc, value) => acc + value);
+        }
+
+        private List<BigInteger> GetNormalizedQtys(IEnumerable<IOnchainClobRequest> batchRequests)
+        {
+            return batchRequests
+                .Select(r =>
+                {
+                    if (!TryNormalizeQty(r.Qty, out var normalizedQty))
+                        throw new Exception($"Invalid qty {r.Qty}");
+                    return normalizedQty;
+                })
+                .ToList();
+        }
+
+        private List<BigInteger> GetNormalizedPrices(IEnumerable<IOnchainClobRequest> batchRequests)
+        {
+            return batchRequests
+                .Select(r =>
+                {
+                    if (!TryNormalizePrice(r.Price, out var normalizedPrice))
+                        throw new Exception($"Invalid significant digits count or size for price {r.Price}");
+                    return (BigInteger)normalizedPrice;
+                })
+                .ToList();
+        }
+
+        private BigInteger GetPreviousLeaveAmount(List<ulong> orderIds, Side side)
+        {
+            return orderIds
+                .Where(orderId => orderId > 1)
+                .Select(orderId => _activeOrders[orderId.ToString()])
+                .Where(order => order.Side == side)
+                .Select(order => GetPreviousLeaveAmount(order, side))
+                .Aggregate(BigInteger.Zero, (acc, value) => acc + value);
+        }
+
+        private BigInteger GetPreviousLeaveAmount(Order order, Side side)
+        {
+            if (!TryNormalizePrice(order.Price, out var normalizedPrice))
+                throw new Exception($"Invalid significant digits count or size for price {order.Price}");
+
+            if (!TryNormalizeQty(order.LeaveQty, out var normalizedQty))
+                throw new Exception($"Invalid leaveqty {order.LeaveQty}");
+
+            return side == Side.Sell
+                ? normalizedQty * BigInteger.Pow(10, _symbolConfig.ScallingFactorX)
+                : normalizedQty * normalizedPrice * BigInteger.Pow(10, _symbolConfig.ScallingFactorY);
         }
 
         private async void Executor_TxMempooled(object sender, MempooledEventArgs e)
@@ -1273,7 +1183,8 @@ namespace OnchainClob.Trading
             return normalizedQty.Divide(multiplier) == qty;
         }
 
-        private IEnumerable<(ulong?, IEnumerable<IOnchainClobRequest>)> SplitIntoSeveralBatches(IEnumerable<IOnchainClobRequest> requests)
+        private IEnumerable<(ulong?, IEnumerable<IOnchainClobRequest>)> SplitIntoSeveralBatches(
+            IEnumerable<IOnchainClobRequest> requests)
         {
             if (_defaultGasLimits == null)
             {
