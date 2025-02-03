@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace OnchainClob.Client
+namespace OnchainClob.Client.Parameters
 {
     public class ApproveParams : TransactionParams
     {

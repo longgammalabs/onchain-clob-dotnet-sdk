@@ -45,7 +45,7 @@ namespace OnchainClob.Trading
 
         public void AddSymbolConfig(ISymbolConfig symbolConfig)
         {
-            _symbolConfigs[symbolConfig.ContractAddress] = symbolConfig;
+            _symbolConfigs[symbolConfig.ContractAddress.ToLowerInvariant()] = symbolConfig;
         }
 
         public async Task<Result<BigInteger>> GetNativeBalanceAsync(
@@ -74,7 +74,7 @@ namespace OnchainClob.Trading
         {
             if (!forceUpdate)
             {
-                return _tokenBalances.TryGetValue(tokenContractAddress, out var balance)
+                return _tokenBalances.TryGetValue(tokenContractAddress.ToLowerInvariant(), out var balance)
                     ? balance
                     : BigInteger.Zero;
             }
@@ -90,7 +90,7 @@ namespace OnchainClob.Trading
             if (tokenBalanceError != null)
                 return tokenBalanceError;
 
-            _tokenBalances[tokenContractAddress] = tokenBalance;
+            _tokenBalances[tokenContractAddress.ToLowerInvariant()] = tokenBalance;
             return tokenBalance;
         }
 
@@ -102,10 +102,10 @@ namespace OnchainClob.Trading
             if (!forceUpdate)
             {
                 return (
-                    _lobBalancesTokenX.TryGetValue(symbolConfig.ContractAddress, out var balanceX)
+                    _lobBalancesTokenX.TryGetValue(symbolConfig.ContractAddress.ToLowerInvariant(), out var balanceX)
                         ? balanceX
                         : BigInteger.Zero,
-                    _lobBalancesTokenY.TryGetValue(symbolConfig.ContractAddress, out var balanceY)
+                    _lobBalancesTokenY.TryGetValue(symbolConfig.ContractAddress.ToLowerInvariant(), out var balanceY)
                         ? balanceY
                         : BigInteger.Zero
                 );
@@ -127,14 +127,14 @@ namespace OnchainClob.Trading
 
             var traderBalance = new GetTraderBalanceOutput().DecodeOutput(hexResult);
 
-            _lobBalancesTokenX[symbolConfig.ContractAddress] = 
+            _lobBalancesTokenX[symbolConfig.ContractAddress.ToLowerInvariant()] =
                 traderBalance.TokenX * BigInteger.Pow(10, symbolConfig.ScallingFactorX);
-            _lobBalancesTokenY[symbolConfig.ContractAddress] = 
+            _lobBalancesTokenY[symbolConfig.ContractAddress.ToLowerInvariant()] =
                 traderBalance.TokenY * BigInteger.Pow(10, symbolConfig.ScallingFactorY);
 
             return (
-                _lobBalancesTokenX[symbolConfig.ContractAddress],
-                _lobBalancesTokenY[symbolConfig.ContractAddress]
+                _lobBalancesTokenX[symbolConfig.ContractAddress.ToLowerInvariant()],
+                _lobBalancesTokenY[symbolConfig.ContractAddress.ToLowerInvariant()]
             );
         }
 
@@ -144,7 +144,7 @@ namespace OnchainClob.Trading
             bool forceUpdate = true,
             CancellationToken cancellationToken = default)
         {
-            if (!_symbolConfigs.TryGetValue(lobContractAddress, out var symbolConfig))
+            if (!_symbolConfigs.TryGetValue(lobContractAddress.ToLowerInvariant(), out var symbolConfig))
             {
                 return new Error($"Symbol config not found for contract address {lobContractAddress}");
             }
@@ -156,8 +156,8 @@ namespace OnchainClob.Trading
                     NativeBalance = _nativeBalance,
                     TokenBalanceX = GetCachedTokenBalance(symbolConfig.TokenX.ContractAddress),
                     TokenBalanceY = GetCachedTokenBalance(symbolConfig.TokenY.ContractAddress),
-                    LobBalanceX = _lobBalancesTokenX[lobContractAddress],
-                    LobBalanceY = _lobBalancesTokenY[lobContractAddress],
+                    LobBalanceX = _lobBalancesTokenX[lobContractAddress.ToLowerInvariant()],
+                    LobBalanceY = _lobBalancesTokenY[lobContractAddress.ToLowerInvariant()],
                 };
             }
 
@@ -174,7 +174,7 @@ namespace OnchainClob.Trading
             Error? tokenBalanceError;
 
             if (tokenContractAddress == null ||
-                (tokenContractAddress != null && tokenContractAddress == symbolConfig.TokenX.ContractAddress))
+                (tokenContractAddress != null && tokenContractAddress.Equals(symbolConfig.TokenX.ContractAddress, StringComparison.OrdinalIgnoreCase)))
             {
                 (tokenBalanceX, tokenBalanceError) = await GetTokenBalanceAsync(
                     symbolConfig.TokenX.ContractAddress,
@@ -188,7 +188,7 @@ namespace OnchainClob.Trading
             var tokenBalanceY = BigInteger.Zero;
 
             if (tokenContractAddress == null ||
-                (tokenContractAddress != null && tokenContractAddress == symbolConfig.TokenY.ContractAddress))
+                (tokenContractAddress != null && tokenContractAddress.Equals(symbolConfig.TokenY.ContractAddress, StringComparison.OrdinalIgnoreCase)))
             {
                 (tokenBalanceY, tokenBalanceError) = await GetTokenBalanceAsync(
                     symbolConfig.TokenY.ContractAddress,
@@ -219,7 +219,7 @@ namespace OnchainClob.Trading
 
         private BigInteger GetCachedTokenBalance(string tokenContractAddress)
         {
-            return _tokenBalances.TryGetValue(tokenContractAddress, out var balance)
+            return _tokenBalances.TryGetValue(tokenContractAddress.ToLowerInvariant(), out var balance)
                 ? balance
                 : BigInteger.Zero;
         }

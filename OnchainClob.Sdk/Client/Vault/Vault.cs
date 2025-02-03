@@ -1,7 +1,8 @@
-using OnchainClob.Abi.Vault;
-using OnchainClob.Trading.Abstract;
 using Nethereum.Contracts;
 using Nethereum.RPC.Eth.DTOs;
+using OnchainClob.Abi.Vault;
+using OnchainClob.Client.Parameters;
+using OnchainClob.Trading.Abstract;
 using Revelium.Evm.Abi.Erc20;
 using Revelium.Evm.Common;
 using Revelium.Evm.Rpc;

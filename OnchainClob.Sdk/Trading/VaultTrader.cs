@@ -2,7 +2,7 @@
 using OnchainClob.Client;
 using OnchainClob.Client.Configuration;
 using OnchainClob.Client.Events;
-using OnchainClob.Client.Lob;
+using OnchainClob.Client.Vault;
 using OnchainClob.Common;
 using OnchainClob.Trading.Abstract;
 using OnchainClob.Trading.Events;
@@ -16,7 +16,7 @@ using ErrorEventArgs = OnchainClob.Trading.Events.ErrorEventArgs;
 
 namespace OnchainClob.Trading
 {
-    public class LobTrader : ILobTrader
+    public class VaultTrader : IVaultTrader
     {
         private const long BASE_FEE_PER_GAS = 100_000_000_000;
         private const string ALL_MARKETS = "allMarkets";
@@ -30,14 +30,16 @@ namespace OnchainClob.Trading
         public event EventHandler<List<Order>>? OrdersChanged;
         public event EventHandler<bool>? AvailabilityChanged;
 
-        private readonly ISymbolConfig _symbolConfig;
+        private readonly string _vaultContractAddress;
+        private readonly string _batchContractAddress;
+        private readonly IVaultSymbolConfig _symbolConfig;
         private readonly WebSocketClient _webSocketClient;
         private readonly RestApi _restApi;
-        private readonly Lob _lob;
+        private readonly Vault _vault;
         private readonly BalanceManager _balanceManager;
         private readonly RpcClient _rpc;
         private readonly GasLimits? _defaultGasLimits;
-        private readonly ILogger<LobTrader>? _logger;
+        private readonly ILogger<VaultTrader>? _logger;
         private Channel<UserOrdersEventArgs>? _userOrdersChannel;
         private CancellationTokenSource? _userOrdersHandlerCts;
 
@@ -64,16 +66,22 @@ namespace OnchainClob.Trading
 
         public string Symbol => _symbolConfig.Symbol;
 
-        public LobTrader(
-            ISymbolConfig symbolConfig,
+        public VaultTrader(
+            string vaultContractAddress,
+            string batchContractAddress,
+            IVaultSymbolConfig symbolConfig,
             WebSocketClient webSocketClient,
             RestApi restApi,
-            Lob lob,
+            Vault vault,
             BalanceManager balanceManager,
             RpcClient rpc,
             GasLimits? defaultGasLimits = null,
-            ILogger<LobTrader>? logger = null)
+            ILogger<VaultTrader>? logger = null)
         {
+            _vaultContractAddress = vaultContractAddress
+                ?? throw new ArgumentNullException(nameof(vaultContractAddress));
+            _batchContractAddress = batchContractAddress
+                ?? throw new ArgumentNullException(nameof(batchContractAddress));
             _symbolConfig = symbolConfig ?? throw new ArgumentNullException(nameof(symbolConfig));
             _defaultGasLimits = defaultGasLimits;
             _logger = logger;
@@ -85,10 +93,10 @@ namespace OnchainClob.Trading
 
             _restApi = restApi ?? throw new ArgumentNullException(nameof(restApi));
 
-            _lob = lob ?? throw new ArgumentNullException(nameof(lob));
-            _lob.Executor.TxMempooled += Executor_TxMempooled;
-            _lob.Executor.TxFailed += Executor_TxFailed;
-            _lob.Executor.Error += Executor_Error;
+            _vault = vault ?? throw new ArgumentNullException(nameof(vault));
+            _vault.Executor.TxMempooled += Executor_TxMempooled;
+            _vault.Executor.TxFailed += Executor_TxFailed;
+            _vault.Executor.Error += Executor_Error;
 
             _balanceManager = balanceManager ?? throw new ArgumentNullException(nameof(balanceManager));
             _rpc = rpc ?? throw new ArgumentNullException(nameof(rpc));
@@ -142,7 +150,6 @@ namespace OnchainClob.Trading
             Side side,
             bool marketOnly = false,
             bool postOnly = false,
-            bool transferExecutedTokens = false,
             CancellationToken cancellationToken = default)
         {
             var fromToken = side == Side.Sell
@@ -174,6 +181,7 @@ namespace OnchainClob.Trading
             var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
             var maxFee = maxFeePerGas * (_defaultGasLimits?.PlaceOrder ?? 0);
 
+            // TODO: also check pyth price update fee
             if (balances.NativeBalance < maxFee)
             {
                 _logger?.LogError(
@@ -193,32 +201,26 @@ namespace OnchainClob.Trading
                 throw new Exception($"Invalid qty {qty}");
 
             var inputAmount = GetInputAmount(side, normalizedPrice, normalizedQty);
-            var isFromNative = _symbolConfig.UseNative && fromToken.IsNative;
 
-            if (!CheckBalance(side, balances, maxFee, BigInteger.Zero, inputAmount, isFromNative))
+            if (!CheckBalance(side, balances, BigInteger.Zero, inputAmount))
                 return;
 
             var expiration = DateTimeOffset.UtcNow.AddSeconds(DEFAULT_EXPIRED_SEC).ToUnixTimeSeconds();
 
-            var nativeTokenValue = isFromNative
-                ? inputAmount > balances.GetLobBalanceBySide(side)
-                    ? inputAmount - balances.GetLobBalanceBySide(side)
-                    : 0
-                : 0;
-
-            var placeOrderRequestId = await _lob.PlaceOrderAsync(new PlaceOrderParams
+            var placeOrderRequestId = await _vault.PlaceOrderAsync(new PlaceOrderParams
             {
+                LobId = _symbolConfig.LobId,
                 IsAsk = side == Side.Sell,
                 Price = normalizedPrice,
                 Quantity = normalizedQty,
                 MaxCommission = UINT128_MAX_VALUE,
                 MarketOnly = marketOnly,
                 PostOnly = postOnly,
-                TransferExecutedTokens = transferExecutedTokens,
                 Expires = expiration,
+                PriceUpdateData = [], // TODO: get price update data (if needed)
 
-                Value = nativeTokenValue,
-                ContractAddress = _symbolConfig.ContractAddress.ToLowerInvariant(),
+                Value = 0, // TODO: value for pyth price update fee (if needed)
+                ContractAddress = _vaultContractAddress.ToLowerInvariant(),
                 MaxFeePerGas = maxFeePerGas,
                 MaxPriorityFeePerGas = maxPriorityFeePerGas,
                 GasLimit = _defaultGasLimits?.PlaceOrder,
@@ -251,7 +253,6 @@ namespace OnchainClob.Trading
 
         public async Task<bool> OrderCancelAsync(
             ulong orderId,
-            bool transferTokens = false,
             CancellationToken cancellationToken = default)
         {
             // return false if order has already been canceled
@@ -296,13 +297,13 @@ namespace OnchainClob.Trading
 
             var expiration = DateTimeOffset.UtcNow.AddSeconds(DEFAULT_EXPIRED_SEC).ToUnixTimeSeconds();
 
-            var claimOrderRequestId = await _lob.ClaimOrderAsync(new ClaimOrderParams
+            var claimOrderRequestId = await _vault.ClaimOrderAsync(new ClaimOrderParams
             {
+                LobId = _symbolConfig.LobId,
                 OrderId = orderId,
-                TransferTokens = transferTokens,
                 Expires = expiration,
 
-                ContractAddress = _symbolConfig.ContractAddress.ToLowerInvariant(),
+                ContractAddress = _vaultContractAddress.ToLowerInvariant(),
                 MaxFeePerGas = maxFeePerGas,
                 MaxPriorityFeePerGas = maxPriorityFeePerGas,
                 GasLimit = _defaultGasLimits?.ClaimOrder,
@@ -322,143 +323,9 @@ namespace OnchainClob.Trading
             return true;
         }
 
-        public async Task<bool> OrderModifyAsync(
-            ulong orderId,
-            decimal price,
-            decimal qty,
-            bool postOnly = false,
-            bool transferTokens = false,
-            CancellationToken cancellationToken = default)
-        {
-            // return false if order has already been canceled
-            if (orderId > 1 && !_canceledOrders.TryAdd(orderId, DateTimeOffset.UtcNow))
-                return false;
-
-            var side = orderId.GetSideFromOrderId();
-            var fromToken = side == Side.Sell
-                ? _symbolConfig.TokenX
-                : _symbolConfig.TokenY;
-
-            var (balances, balancesError) = await _balanceManager.GetAvailableBalancesAsync(
-                _symbolConfig.ContractAddress,
-                fromToken.ContractAddress,
-                forceUpdate: true,
-                cancellationToken);
-
-            if (balancesError != null)
-            {
-                _logger?.LogError(balancesError, "[{@symbol}] Get available balances error", Symbol);
-                return false;
-            }
-
-            // get max priority fee per gas
-            var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
-                cancellationToken);
-
-            if (maxPriorityFeeError != null)
-            {
-                _logger?.LogError(maxPriorityFeeError, "[{@symbol}] Get max prirority fee per gas error", Symbol);
-                return false;
-            }
-
-            var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
-            var maxFee = maxFeePerGas * (_defaultGasLimits?.ChangeOrder ?? 0);
-
-            if (balances.NativeBalance < maxFee)
-            {
-                _logger?.LogError(
-                    "[{@symbol}] Insufficient native token balance for ChangeOrder fee. " +
-                        "Native balance: {@nativeBalance}. " +
-                        "Max fee: {@fee}.",
-                    Symbol,
-                    balances.NativeBalance,
-                    maxFee);
-                return false;
-            }
-
-            if (!TryNormalizePrice(price, out var normalizedPrice))
-                throw new Exception($"Invalid significant digits count or size for price {price}");
-
-            if (!TryNormalizeQty(qty, out var normalizedQty))
-                throw new Exception($"Invalid qty {qty}");
-
-            var nativeTokenValue = BigInteger.Zero;
-
-            if (qty > 0)
-            {
-                var previousLeaveAmount = orderId > 1
-                    ? GetPreviousLeaveAmount(_activeOrders[orderId.ToString()], side)
-                    : BigInteger.Zero;
-
-                var inputAmount = GetInputAmount(side, normalizedPrice, normalizedQty);
-                var isFromNative = _symbolConfig.UseNative && fromToken.IsNative;
-
-                if (!CheckBalance(side, balances, maxFee, previousLeaveAmount, inputAmount, isFromNative))
-                    return false;
-
-                nativeTokenValue = isFromNative
-                    ? inputAmount > balances.GetLobBalanceBySide(side) + previousLeaveAmount
-                        ? inputAmount - balances.GetLobBalanceBySide(side) - previousLeaveAmount
-                        : 0
-                    : 0;
-            }
-
-            var expiration = DateTimeOffset.UtcNow.AddSeconds(DEFAULT_EXPIRED_SEC).ToUnixTimeSeconds();
-
-            var changeOrderRequestId = await _lob.ChangeOrderAsync(new ChangeOrderParams
-            {
-                OldOrderId = orderId,
-                NewPrice = normalizedPrice,
-                NewQuantity = normalizedQty,
-                PostOnly = postOnly,
-                TransferTokens = transferTokens,
-                Expires = expiration,
-
-                Value = nativeTokenValue,
-                ContractAddress = _symbolConfig.ContractAddress.ToLowerInvariant(),
-                MaxFeePerGas = maxFeePerGas,
-                MaxPriorityFeePerGas = maxPriorityFeePerGas,
-                GasLimit = _defaultGasLimits?.ChangeOrder,
-                EstimateGas = true,
-                EstimateGasReserveInPercent = ESTIMATE_GAS_RESERVE_IN_PERCENTS,
-                TransactionType = EIP1559_TRANSACTION_TYPE
-            }, cancellationToken);
-
-            if (orderId > 1)
-                _pendingCancellationRequests.TryAdd(changeOrderRequestId, [orderId.ToString()]);
-
-            if (qty > 0)
-            {
-                var pendingOrder = new Order(
-                    OrderId: changeOrderRequestId,
-                    Price: price,
-                    Qty: qty,
-                    LeaveQty: qty,
-                    ClaimedQty: 0,
-                    Side: side,
-                    Symbol: Symbol,
-                    Status: OrderStatus.Pending,
-                    Type: OrderType.Return,
-                    Created: DateTimeOffset.UtcNow,
-                    LastChanged: DateTimeOffset.UtcNow,
-                    TxnHash: null);
-
-                _pendingOrders.TryAdd(changeOrderRequestId, [pendingOrder]);
-            }
-
-            _pendingRequests.TryAdd(changeOrderRequestId, true);
-
-            _logger?.LogDebug(
-                "[{@symbol}] Add change order request with id {@id} and orderId {@orderId}",
-                Symbol, changeOrderRequestId, orderId);
-
-            return true;
-        }
-
         public async Task BatchAsync(
             IEnumerable<ITraderRequest> requests,
             bool postOnly = false,
-            bool transferTokens = false,
             CancellationToken cancellationToken = default)
         {
             // try cancel pending orders
@@ -497,7 +364,7 @@ namespace OnchainClob.Trading
 
                 if (balancesError != null)
                 {
-                    _logger?.LogError(balancesError, "Get available balances error");
+                    _logger?.LogError(balancesError, "[{@symbol}] Get available balances error", Symbol);
                     return;
                 }
 
@@ -513,11 +380,9 @@ namespace OnchainClob.Trading
                     return;
                 }
 
-                var nativeTokenValue = BigInteger.Zero;
-
                 if (qtys.Any(q => q > 0))
                 {
-                    // check balances for both sides and calculate native token value
+                    // check balances for both sides
                     foreach (var side in new Side[] { Side.Buy, Side.Sell })
                     {
                         var previousLeaveAmount = GetPreviousLeaveAmount(orderIds, side);
@@ -527,37 +392,27 @@ namespace OnchainClob.Trading
                         if (inputAmount == 0)
                             continue;
 
-                        var fromToken = side == Side.Sell
-                            ? _symbolConfig.TokenX
-                            : _symbolConfig.TokenY;
-
-                        var isFromNative = _symbolConfig.UseNative && fromToken.IsNative;
-
-                        if (!CheckBalance(side, balances, maxFee, previousLeaveAmount, inputAmount, isFromNative))
+                        if (!CheckBalance(side, balances, previousLeaveAmount, inputAmount))
                             return;
-
-                        nativeTokenValue += isFromNative
-                            ? inputAmount > balances.GetLobBalanceBySide(side) + previousLeaveAmount
-                                ? inputAmount - balances.GetLobBalanceBySide(side) - previousLeaveAmount
-                                : 0
-                            : 0;
                     }
                 }
 
                 var expiration = DateTimeOffset.UtcNow.AddSeconds(DEFAULT_EXPIRED_SEC).ToUnixTimeSeconds();
 
-                var batchChangeOrderRequestId = await _lob.BatchChangeOrderAsync(new BatchChangeOrderParams
+                var batchChangeOrderRequestId = await _vault.BatchChangeOrderAsync(new BatchChangeOrderParams
                 {
+                    LpManagerAddress = _vaultContractAddress.ToLowerInvariant(),
+                    LobId = _symbolConfig.LobId,
                     OrderIds = orderIds,
                     Prices = prices,
                     Quantities = qtys,
                     MaxCommissionPerOrder = UINT128_MAX_VALUE,
                     PostOnly = postOnly,
-                    TransferTokens = transferTokens,
                     Expires = expiration,
+                    PriceUpdateData = [], // TODO: get price update data (if needed)
 
-                    Value = nativeTokenValue,
-                    ContractAddress = _symbolConfig.ContractAddress.ToLowerInvariant(),
+                    Value = 0, // TODO: value for pyth price update fee (if needed)
+                    ContractAddress = _batchContractAddress.ToLowerInvariant(),
                     MaxFeePerGas = maxFeePerGas,
                     MaxPriorityFeePerGas = maxPriorityFeePerGas,
                     GasLimit = batchGasLimit,
@@ -588,7 +443,7 @@ namespace OnchainClob.Trading
             string placeOrderRequestId,
             CancellationToken cancellationToken = default)
         {
-            var isCanceled = await _lob.Executor.TryCancelRequestAsync(
+            var isCanceled = await _vault.Executor.TryCancelRequestAsync(
                 placeOrderRequestId,
                 cancellationToken);
 
@@ -616,40 +471,18 @@ namespace OnchainClob.Trading
         private bool CheckBalance(
             Side side,
             Balances balances,
-            BigInteger maxFee,
             BigInteger previousLeaveAmount,
-            BigInteger inputAmount,
-            bool isFromNative)
+            BigInteger inputAmount)
         {
-            if (isFromNative && (balances.NativeBalance + balances.GetLobBalanceBySide(side) + previousLeaveAmount < inputAmount + maxFee))
-            {
-                _logger?.LogError(
-                    "[{@symbol}] Insufficient native token balance for operation. " +
-                    "Native balance: {@nativeBalance}. " +
-                    "Lob balance: {@lobBalance}. " +
-                    "Previous leave amount: {@previousLeaveAmount}. " +
-                    "Input amount: {@inputAmount}. " +
-                    "Max fee: {@maxFee}.",
-                    Symbol,
-                    balances.NativeBalance,
-                    balances.GetLobBalanceBySide(side),
-                    previousLeaveAmount,
-                    inputAmount,
-                    maxFee);
-
-                return false;
-            }
-            else if (!isFromNative && (balances.GetTokenBalanceBySide(side) + balances.GetLobBalanceBySide(side) + previousLeaveAmount < inputAmount))
+            if (balances.GetTokenBalanceBySide(side) + previousLeaveAmount < inputAmount)
             {
                 _logger?.LogError(
                     "[{@symbol}] Insufficient token balance for operation. " +
                     "Token balance: {@balance}. " +
-                    "Lob balance: {@lobBalance}. " +
                     "Previous leave amount: {@previousLeaveAmount}. " +
                     "Input amount: {@inputAmount}.",
                     Symbol,
                     balances.GetTokenBalanceBySide(side),
-                    balances.GetLobBalanceBySide(side),
                     previousLeaveAmount,
                     inputAmount);
 
@@ -920,7 +753,7 @@ namespace OnchainClob.Trading
             StartUserOrdersHandlerTask();
 
             _webSocketClient.SubscribeUserOrdersChannel(
-                userAddress: _lob.Executor.Signer.GetAddress(),
+                userAddress: _vaultContractAddress.ToLowerInvariant(),
                 marketId: _symbolConfig.ContractAddress.ToLowerInvariant());
         }
 
@@ -1034,7 +867,7 @@ namespace OnchainClob.Trading
             {
                 // request active orders from api
                 var (activeOrders, error) = await _restApi.GetActiveOrdersAsync(
-                    _lob.Executor.Signer.GetAddress(),
+                    _vault.Executor.Signer.GetAddress(),
                     _symbolConfig.ContractAddress.ToLowerInvariant(),
                     cancellationToken: cancellationToken);
 
