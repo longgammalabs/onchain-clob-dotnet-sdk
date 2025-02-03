@@ -1,16 +1,12 @@
-﻿using OnchainClob.Abi.Lob;
-using OnchainClob.Client;
+﻿using OnchainClob.Client;
 using OnchainClob.Client.Configuration;
 using OnchainClob.Client.Events;
 using OnchainClob.Common;
 using OnchainClob.Trading.Abstract;
 using OnchainClob.Trading.Events;
-using Incendium;
 using Microsoft.Extensions.Logging;
-using Nethereum.Contracts;
 using Revelium.Evm.Common;
 using Revelium.Evm.Rpc;
-using Revelium.Evm.Rpc.Parameters;
 using System.Collections.Concurrent;
 using System.Numerics;
 using System.Threading.Channels;
