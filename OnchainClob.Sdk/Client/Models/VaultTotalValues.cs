@@ -26,7 +26,7 @@ namespace OnchainClob.Client.Models
         public VaultPerformanceValues VaultPerformance { get; init; } = default!;
 
         [JsonPropertyName("totalSupply")]
-        public string TotalSupply { get; init; }
+        public string TotalSupply { get; init; } = default!;
 
         [JsonPropertyName("totalWeight")]
         public decimal TotalWeight { get; init; }
