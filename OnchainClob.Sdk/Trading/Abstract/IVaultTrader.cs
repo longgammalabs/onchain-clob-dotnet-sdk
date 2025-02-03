@@ -1,4 +1,5 @@
-﻿using OnchainClob.Common;
+﻿using OnchainClob.Client.Events;
+using OnchainClob.Common;
 using OnchainClob.Trading.Requests;
 
 namespace OnchainClob.Trading.Abstract
@@ -7,6 +8,7 @@ namespace OnchainClob.Trading.Abstract
     {
         event EventHandler<List<Order>> OrdersChanged;
         event EventHandler<bool>? AvailabilityChanged;
+        event EventHandler<VaultTotalValuesEventArgs>? VaultTotalValuesChanged;
 
         List<Order> GetActiveOrders(bool pending = true);
         List<Order> GetPendingOrders();
