@@ -25,23 +25,16 @@ namespace OnchainClob.Trading
             side == Side.Sell ? LobBalanceX : LobBalanceY;
     }
 
-    public class BalanceManager
+    public class BalanceManager(RpcClient rpc, string fromAddress, string vaultAddress)
     {
-        private readonly RpcClient _rpc;
-        private readonly string _fromAddress;
-        private readonly string _vaultAddress;
+        private readonly RpcClient _rpc = rpc ?? throw new ArgumentNullException(nameof(rpc));
+        private readonly string _fromAddress = fromAddress ?? throw new ArgumentNullException(nameof(fromAddress));
+        private readonly string _vaultAddress = vaultAddress ?? throw new ArgumentNullException(nameof(vaultAddress));
         private BigInteger _nativeBalance;
         private readonly Dictionary<string, BigInteger> _tokenBalances = [];
         private readonly Dictionary<string, BigInteger> _lobBalancesTokenX = [];
         private readonly Dictionary<string, BigInteger> _lobBalancesTokenY = [];
         private readonly Dictionary<string, ISymbolConfig> _symbolConfigs = [];
-
-        public BalanceManager(RpcClient rpc, string fromAddress, string vaultAddress)
-        {
-            _rpc = rpc ?? throw new ArgumentNullException(nameof(rpc));
-            _fromAddress = fromAddress ?? throw new ArgumentNullException(nameof(fromAddress));
-            _vaultAddress = vaultAddress ?? throw new ArgumentNullException(nameof(vaultAddress));
-        }
 
         public void AddSymbolConfig(ISymbolConfig symbolConfig)
         {

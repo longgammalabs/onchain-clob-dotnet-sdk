@@ -39,6 +39,7 @@ namespace OnchainClob.Trading
         private readonly Vault _vault;
         private readonly BalanceManager _balanceManager;
         private readonly RpcClient _rpc;
+        private readonly Pyth _pyth;
         private readonly GasLimits? _defaultGasLimits;
         private readonly ILogger<VaultTrader>? _logger;
         private Channel<UserOrdersEventArgs>? _userOrdersChannel;
@@ -76,6 +77,7 @@ namespace OnchainClob.Trading
             Vault vault,
             BalanceManager balanceManager,
             RpcClient rpc,
+            Pyth pyth,
             GasLimits? defaultGasLimits = null,
             ILogger<VaultTrader>? logger = null)
         {
@@ -102,6 +104,7 @@ namespace OnchainClob.Trading
 
             _balanceManager = balanceManager ?? throw new ArgumentNullException(nameof(balanceManager));
             _rpc = rpc ?? throw new ArgumentNullException(nameof(rpc));
+            _pyth = pyth ?? throw new ArgumentNullException(nameof(pyth));
 
             _ordersSync = new SemaphoreSlim(initialCount: 1, maxCount: 1);
             _canceledOrders = [];
@@ -109,6 +112,7 @@ namespace OnchainClob.Trading
             _pendingOrders = [];
             _pendingRequests = [];
             _activeOrders = [];
+
         }
 
         public List<Order> GetActiveOrders(bool pending = true)
@@ -183,16 +187,18 @@ namespace OnchainClob.Trading
             var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
             var maxFee = maxFeePerGas * (_defaultGasLimits?.PlaceOrder ?? 0);
 
-            // TODO: also check pyth price update fee
-            if (balances.NativeBalance < maxFee)
+            if (balances.NativeBalance < maxFee + _pyth.PriceUpdateFee)
             {
                 _logger?.LogError(
                     "[{@symbol}] Insufficient native token balance for PlaceOrder fee. " +
                         "Native balance: {@nativeBalance}. " +
-                        "Max fee: {@fee}.",
+                        "Max fee: {@fee}. " +
+                        "Price update fee: {@priceUpdateFee}.",
                     Symbol,
                     balances.NativeBalance.ToString(),
-                    maxFee.ToString());
+                    maxFee.ToString(),
+                    _pyth.PriceUpdateFee.ToString());
+
                 return;
             }
 
@@ -209,6 +215,18 @@ namespace OnchainClob.Trading
 
             var expiration = DateTimeOffset.UtcNow.AddSeconds(DEFAULT_EXPIRED_SEC).ToUnixTimeSeconds();
 
+            var (priceUpdateData, priceUpdateDataError) = await _pyth.GetPriceUpdateDataAsync();
+
+            if (priceUpdateDataError != null)
+            {
+                _logger?.LogWarning(
+                    priceUpdateDataError,
+                    "[{@symbol}] Get price update data error",
+                    Symbol);
+            }
+
+            var priceUpdateFee = priceUpdateData != null ? _pyth.PriceUpdateFee : 0;
+
             var placeOrderRequestId = await _vault.PlaceOrderAsync(new PlaceOrderParams
             {
                 LobId = _symbolConfig.LobId,
@@ -219,16 +237,17 @@ namespace OnchainClob.Trading
                 MarketOnly = marketOnly,
                 PostOnly = postOnly,
                 Expires = expiration,
-                PriceUpdateData = [], // TODO: get price update data (if needed)
+                PriceUpdateData = priceUpdateData ?? [],
 
-                Value = 0, // TODO: value for pyth price update fee (if needed)
+                Value = priceUpdateFee,
                 ContractAddress = _vaultContractAddress.ToLowerInvariant(),
                 MaxFeePerGas = maxFeePerGas,
                 MaxPriorityFeePerGas = maxPriorityFeePerGas,
                 GasLimit = _defaultGasLimits?.PlaceOrder,
                 EstimateGas = true,
                 EstimateGasReserveInPercent = ESTIMATE_GAS_RESERVE_IN_PERCENTS,
-                TransactionType = EIP1559_TRANSACTION_TYPE
+                TransactionType = EIP1559_TRANSACTION_TYPE,
+                ChainId = _rpc.ChainId
             }, cancellationToken);
 
             var pendingOrder = new Order(
@@ -312,7 +331,9 @@ namespace OnchainClob.Trading
                 MaxPriorityFeePerGas = maxPriorityFeePerGas,
                 GasLimit = _defaultGasLimits?.ClaimOrder,
                 EstimateGas = true,
-                EstimateGasReserveInPercent = ESTIMATE_GAS_RESERVE_IN_PERCENTS
+                EstimateGasReserveInPercent = ESTIMATE_GAS_RESERVE_IN_PERCENTS,
+                TransactionType = EIP1559_TRANSACTION_TYPE,
+                ChainId = _rpc.ChainId
             }, cancellationToken);
 
             _pendingCancellationRequests.TryAdd(claimOrderRequestId, [orderId.ToString()]);
@@ -372,15 +393,18 @@ namespace OnchainClob.Trading
                     return;
                 }
 
-                if (balances.NativeBalance < maxFee)
+                if (balances.NativeBalance < maxFee + _pyth.PriceUpdateFee)
                 {
                     _logger?.LogError(
                         "[{@symbol}] Insufficient native token balance for BatchChangeOrder fee. " +
                             "Native balance: {@balance}. " +
-                            "Max fee: {@fee}.",
+                            "Max fee: {@fee}. " +
+                            "Price update fee: {@priceUpdateFee}.",
                         Symbol,
                         balances.NativeBalance.ToString(),
-                        maxFee.ToString());
+                        maxFee.ToString(),
+                        _pyth.PriceUpdateFee.ToString());
+
                     return;
                 }
 
@@ -403,6 +427,18 @@ namespace OnchainClob.Trading
 
                 var expiration = DateTimeOffset.UtcNow.AddSeconds(DEFAULT_EXPIRED_SEC).ToUnixTimeSeconds();
 
+                var (priceUpdateData, priceUpdateDataError) = await _pyth.GetPriceUpdateDataAsync();
+
+                if (priceUpdateDataError != null)
+                {
+                    _logger?.LogWarning(
+                        priceUpdateDataError,
+                        "[{@symbol}] Get price update data error",
+                        Symbol);
+                }
+
+                var priceUpdateFee = priceUpdateData != null ? _pyth.PriceUpdateFee : 0;
+
                 var batchChangeOrderRequestId = await _vault.BatchChangeOrderAsync(new BatchChangeOrderParams
                 {
                     LpManagerAddress = _vaultContractAddress.ToLowerInvariant(),
@@ -413,16 +449,18 @@ namespace OnchainClob.Trading
                     MaxCommissionPerOrder = UINT128_MAX_VALUE,
                     PostOnly = postOnly,
                     Expires = expiration,
-                    PriceUpdateData = [], // TODO: get price update data (if needed)
+                    PriceUpdateData = priceUpdateData ?? [],
 
-                    Value = 0, // TODO: value for pyth price update fee (if needed)
+                    Value = priceUpdateFee,
                     ContractAddress = _batchContractAddress.ToLowerInvariant(),
                     MaxFeePerGas = maxFeePerGas,
                     MaxPriorityFeePerGas = maxPriorityFeePerGas,
                     GasLimit = batchGasLimit,
                     EstimateGas = true,
+
                     EstimateGasReserveInPercent = ESTIMATE_GAS_RESERVE_IN_PERCENTS,
-                    TransactionType = EIP1559_TRANSACTION_TYPE
+                    TransactionType = EIP1559_TRANSACTION_TYPE,
+                    ChainId = _rpc.ChainId
                 }, cancellationToken);
 
                 var (pendingOrders, pendingCancellationRequests) = CreatePendingOrdersAndCancellationRequests(
