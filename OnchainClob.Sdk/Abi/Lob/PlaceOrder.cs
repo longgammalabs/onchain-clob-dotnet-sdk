@@ -5,19 +5,6 @@ using System.Numerics;
 
 namespace OnchainClob.Abi.Lob
 {
-    [FunctionOutput]
-    public class PlaceOrderOutputDTO : IFunctionOutputDTO
-    {
-        [Parameter("uint64", "order_id", 1)]
-        public ulong OrderId { get; set; }
-        [Parameter("uint128", "executed_shares", 2)]
-        public BigInteger ExecutedShares { get; set; }
-        [Parameter("uint128", "executed_value", 3)]
-        public BigInteger ExecutedValue { get; set; }
-        [Parameter("uint128", "aggressive_fee", 4)]
-        public BigInteger AggressiveFee { get; set; }
-    }
-
     [Function("placeOrder", typeof(PlaceOrderOutputDTO))]
     public class PlaceOrder : FunctionMessage
     {
@@ -77,5 +64,18 @@ namespace OnchainClob.Abi.Lob
 
         [Parameter("bytes32", "s", 12)]
         public byte[] S { get; set; } = default!;
+    }
+
+    [FunctionOutput]
+    public class PlaceOrderOutputDTO : IFunctionOutputDTO
+    {
+        [Parameter("uint64", "order_id", 1)]
+        public ulong OrderId { get; set; }
+        [Parameter("uint128", "executed_shares", 2)]
+        public BigInteger ExecutedShares { get; set; }
+        [Parameter("uint128", "executed_value", 3)]
+        public BigInteger ExecutedValue { get; set; }
+        [Parameter("uint128", "aggressive_fee", 4)]
+        public BigInteger AggressiveFee { get; set; }
     }
 }
