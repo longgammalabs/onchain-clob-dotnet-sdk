@@ -9,29 +9,8 @@ using Revelium.Evm.Transactions;
 using Revelium.Evm.Transactions.Abstract;
 using System.Numerics;
 
-namespace OnchainClob.Client
+namespace OnchainClob.Client.Lob
 {
-    public class TransactionParams
-    {
-        public string ContractAddress { get; init; } = default!;
-        public BigInteger Value { get; init; }
-        public BigInteger? GasPrice { get; init; }
-        public BigInteger? GasLimit { get; init; }
-        public BigInteger? MaxFeePerGas { get; init; }
-        public BigInteger? MaxPriorityFeePerGas { get; init; }
-        public BigInteger? Nonce { get; init; }
-        public byte? TransactionType { get; init; }
-        public BigInteger? ChainId { get; init; }
-        public bool EstimateGas { get; init; }
-        public uint? EstimateGasReserveInPercent { get; init; }
-    }
-
-    public class ApproveParams : TransactionParams
-    {
-        public string Spender { get; init; } = default!;
-        public BigInteger Amount { get; init; }
-    }
-
     public class PlaceOrderParams : TransactionParams
     {
         public bool IsAsk { get; init; }
@@ -82,7 +61,7 @@ namespace OnchainClob.Client
         public BigInteger Expires { get; init; }
     }
 
-    public class Spot(IExecutor executor)
+    public class Lob(IExecutor executor)
     {
         public IExecutor Executor { get; } = executor ?? throw new ArgumentNullException(nameof(executor));
 

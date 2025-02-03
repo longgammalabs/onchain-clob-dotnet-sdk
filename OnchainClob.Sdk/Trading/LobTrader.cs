@@ -11,10 +11,11 @@ using System.Collections.Concurrent;
 using System.Numerics;
 using System.Threading.Channels;
 using ErrorEventArgs = OnchainClob.Trading.Events.ErrorEventArgs;
+using OnchainClob.Client.Lob;
 
 namespace OnchainClob.Trading
 {
-    public class SpotTrader : ITrader
+    public class LobTrader : ITrader
     {
         private const long BASE_FEE_PER_GAS = 100_000_000_000;
         private const string ALL_MARKETS = "allMarkets";
@@ -31,11 +32,11 @@ namespace OnchainClob.Trading
         private readonly ISymbolConfig _symbolConfig;
         private readonly WebSocketClient _webSocketClient;
         private readonly RestApi _restApi;
-        private readonly Spot _spot;
+        private readonly Lob _lob;
         private readonly BalanceManager _balanceManager;
         private readonly RpcClient _rpc;
         private readonly GasLimits? _defaultGasLimits;
-        private readonly ILogger<SpotTrader>? _logger;
+        private readonly ILogger<LobTrader>? _logger;
         private Channel<UserOrdersEventArgs>? _userOrdersChannel;
         private CancellationTokenSource? _userOrdersHandlerCts;
 
@@ -62,15 +63,15 @@ namespace OnchainClob.Trading
 
         public string Symbol => _symbolConfig.Symbol;
 
-        public SpotTrader(
+        public LobTrader(
             ISymbolConfig symbolConfig,
             WebSocketClient webSocketClient,
             RestApi restApi,
-            Spot spot,
+            Lob lob,
             BalanceManager balanceManager,
             RpcClient rpc,
             GasLimits? defaultGasLimits = null,
-            ILogger<SpotTrader>? logger = null)
+            ILogger<LobTrader>? logger = null)
         {
             _symbolConfig = symbolConfig ?? throw new ArgumentNullException(nameof(symbolConfig));
             _defaultGasLimits = defaultGasLimits;
@@ -83,10 +84,10 @@ namespace OnchainClob.Trading
 
             _restApi = restApi ?? throw new ArgumentNullException(nameof(restApi));
 
-            _spot = spot ?? throw new ArgumentNullException(nameof(spot));
-            _spot.Executor.TxMempooled += Executor_TxMempooled;
-            _spot.Executor.TxFailed += Executor_TxFailed;
-            _spot.Executor.Error += Executor_Error;
+            _lob = lob ?? throw new ArgumentNullException(nameof(lob));
+            _lob.Executor.TxMempooled += Executor_TxMempooled;
+            _lob.Executor.TxFailed += Executor_TxFailed;
+            _lob.Executor.Error += Executor_Error;
 
             _balanceManager = balanceManager ?? throw new ArgumentNullException(nameof(balanceManager));
             _rpc = rpc ?? throw new ArgumentNullException(nameof(rpc));
@@ -204,7 +205,7 @@ namespace OnchainClob.Trading
                     : 0
                 : 0;
 
-            var placeOrderRequestId = await _spot.PlaceOrderAsync(new PlaceOrderParams
+            var placeOrderRequestId = await _lob.PlaceOrderAsync(new PlaceOrderParams
             {
                 IsAsk = side == Side.Sell,
                 Price = normalizedPrice,
@@ -294,7 +295,7 @@ namespace OnchainClob.Trading
 
             var expiration = DateTimeOffset.UtcNow.AddSeconds(DEFAULT_EXPIRED_SEC).ToUnixTimeSeconds();
 
-            var claimOrderRequestId = await _spot.ClaimOrderAsync(new ClaimOrderParams
+            var claimOrderRequestId = await _lob.ClaimOrderAsync(new ClaimOrderParams
             {
                 OrderId = orderId,
                 TransferTokens = transferTokens,
@@ -403,7 +404,7 @@ namespace OnchainClob.Trading
 
             var expiration = DateTimeOffset.UtcNow.AddSeconds(DEFAULT_EXPIRED_SEC).ToUnixTimeSeconds();
 
-            var changeOrderRequestId = await _spot.ChangeOrderAsync(new ChangeOrderParams
+            var changeOrderRequestId = await _lob.ChangeOrderAsync(new ChangeOrderParams
             {
                 OldOrderId = orderId,
                 NewPrice = normalizedPrice,
@@ -544,7 +545,7 @@ namespace OnchainClob.Trading
 
                 var expiration = DateTimeOffset.UtcNow.AddSeconds(DEFAULT_EXPIRED_SEC).ToUnixTimeSeconds();
 
-                var batchChangeOrderRequestId = await _spot.BatchChangeOrderAsync(new BatchChangeOrderParams
+                var batchChangeOrderRequestId = await _lob.BatchChangeOrderAsync(new BatchChangeOrderParams
                 {
                     OrderIds = orderIds,
                     Prices = prices,
@@ -586,7 +587,7 @@ namespace OnchainClob.Trading
             string placeOrderRequestId,
             CancellationToken cancellationToken = default)
         {
-            var isCanceled = await _spot.Executor.TryCancelRequestAsync(
+            var isCanceled = await _lob.Executor.TryCancelRequestAsync(
                 placeOrderRequestId,
                 cancellationToken);
 
@@ -918,7 +919,7 @@ namespace OnchainClob.Trading
             StartUserOrdersHandlerTask();
 
             _webSocketClient.SubscribeUserOrdersChannel(
-                userAddress: _spot.Executor.Signer.GetAddress(),
+                userAddress: _lob.Executor.Signer.GetAddress(),
                 marketId: _symbolConfig.ContractAddress.ToLowerInvariant());
         }
 
@@ -1032,7 +1033,7 @@ namespace OnchainClob.Trading
             {
                 // request active orders from api
                 var (activeOrders, error) = await _restApi.GetActiveOrdersAsync(
-                    _spot.Executor.Signer.GetAddress(),
+                    _lob.Executor.Signer.GetAddress(),
                     _symbolConfig.ContractAddress.ToLowerInvariant(),
                     cancellationToken: cancellationToken);
 
