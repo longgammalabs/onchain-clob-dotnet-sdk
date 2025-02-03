@@ -469,10 +469,18 @@ namespace OnchainClob.Trading
             foreach (var request in requests.OfType<CancelPendingOrderRequest>())
                 await PendingOrderCancelAsync(request.RequestId, cancellationToken);
 
-            // remove pending order cancellation requests and sort by priority
-            requests = requests
-                .Where(r => r is not CancelPendingOrderRequest)
-                .OrderByDescending(r => r.Priority);
+            // filter out pending cancellation requests and already canceled orders, then sort by priority
+            requests = [.. requests
+                .Where(r =>
+                    r is not CancelPendingOrderRequest &&
+                    (r is not ClaimOrderRequest || _canceledOrders.TryAdd(r.OrderId, DateTimeOffset.UtcNow)))
+                .OrderByDescending(r => r.Priority)];
+
+            if (!requests.Any())
+            {
+                _logger?.LogInformation("All requests filtered");
+                return;
+            }
 
             // get max priority fee per gas
             var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
@@ -734,6 +742,12 @@ namespace OnchainClob.Trading
 
         private async void Executor_TxMempooled(object sender, MempooledEventArgs e)
         {
+            _logger?.LogInformation(
+                "[{@symbol}] tx with request id {@id} mempooled with tx id {@txId}",
+                Symbol,
+                e.RequestId,
+                e.TxId);
+
             while (!_pendingRequests.TryRemove(e.RequestId, out _))
                 await Task.Delay(PENDING_CALLS_CHECK_INTERVAL_MS);
 
@@ -743,35 +757,34 @@ namespace OnchainClob.Trading
 
                 if (!_pendingOrders.Remove(e.RequestId, out var pendingOrders))
                 {
-                    _logger?.LogError(
-                        "[{@symbol}] pending orders for request id {@id} should have " +
-                            "been removed but are missing",
+                    _logger?.LogInformation(
+                        "[{@symbol}] pending orders for request id {@id} not found, probably it is a cancellation request",
                         Symbol,
                         e.RequestId);
-
-                    return;
                 }
+                else
+                {
+                    _logger?.LogDebug(
+                        "[{@symbol}] {@count} pending orders removed for request id {@id}",
+                        Symbol,
+                        pendingOrders.Count,
+                        e.RequestId);
 
-                _logger?.LogDebug(
-                    "[{@symbol}] {@count} pending orders removed for request id {@id}",
-                    Symbol,
-                    pendingOrders.Count,
-                    e.RequestId);
+                    pendingOrders = [.. pendingOrders
+                        .Select(o => o with
+                        {
+                            OrderId = e.TxId,
+                            TxnHash = e.TxId,
+                            Status = OrderStatus.Mempooled
+                        })];
 
-                pendingOrders = [.. pendingOrders
-                    .Select(o => o with
-                    {
-                        OrderId = e.TxId,
-                        TxnHash = e.TxId,
-                        Status = OrderStatus.Mempooled
-                    })];
+                    _pendingOrders.TryAdd(e.TxId, pendingOrders);
 
-                _pendingOrders.TryAdd(e.TxId, pendingOrders);
-
-                _logger?.LogDebug(
-                    "[{@symbol}] Add pending orders for txId {@txId}",
-                    Symbol,
-                    e.TxId);
+                    _logger?.LogDebug(
+                        "[{@symbol}] Add pending orders for txId {@txId}",
+                        Symbol,
+                        e.TxId);
+                }
             }
             finally
             {
