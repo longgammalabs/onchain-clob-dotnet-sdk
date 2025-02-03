@@ -28,6 +28,7 @@ namespace OnchainClob.Client
         public event EventHandler<OrderBookEventArgs>? OrderBookUpdated;
         public event EventHandler<UserOrdersEventArgs>? UserOrdersUpdated;
         public event EventHandler<UserFillsEventArgs>? UserFillsUpdated;
+        public event EventHandler<VaultTotalValuesEventArgs>? VaultTotalValuesUpdated;
         public event EventHandler? Connected;
         public event EventHandler? Disconnected;
         public event EventHandler<StateStatus>? StateStatusChanged;
@@ -170,7 +171,26 @@ namespace OnchainClob.Client
             _ws!.Send(requestJson);
         }
 
+        public async void SubscribeVaultTotalValuesChannel()
+        {
+            _logger?.LogInformation("Subscribe to vault total values channel");
+
+            var requestJson = JsonSerializer.Serialize(new
+            {
+                method = "subscribe",
+                subscription = new
+                {
+                    channel = "vaultTotalValues",
+                }
+            });
+
+            await _rateLimitControl.WaitAsync();
+
+            _ws!.Send(requestJson);
+        }
+
         private void HandleMessage(ResponseMessage msg)
+
         {
             try
             {
@@ -207,9 +227,13 @@ namespace OnchainClob.Client
                     case "userFills":
                         HandleUserFillsMessage(message);
                         break;
+                    case "vaultTotalValues":
+                        HandleVaultTotalValuesMessage(message);
+                        break;
                 }
             }
             catch (Exception e)
+
             {
                 _logger?.LogError(e, "Message event handler error");
             }
@@ -299,6 +323,22 @@ namespace OnchainClob.Client
             {
                 MarketId = message.Id,
                 OrderBook = orderBook
+            });
+        }
+
+        private void HandleVaultTotalValuesMessage(ChannelMessage<JsonElement> message)
+        {
+            var vaultTotalValues = message.Data.Deserialize<VaultTotalValues>();
+
+            if (vaultTotalValues == null)
+            {
+                _logger?.LogError("Vault total values is null");
+                return;
+            }
+
+            VaultTotalValuesUpdated?.Invoke(this, new VaultTotalValuesEventArgs
+            {
+                VaultTotalValues = vaultTotalValues
             });
         }
 

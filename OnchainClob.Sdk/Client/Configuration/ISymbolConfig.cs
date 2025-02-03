@@ -8,7 +8,7 @@
         int ScallingFactorY { get; }
         TokenConfig TokenX { get; }
         TokenConfig TokenY { get; }
-        int PricePrecision => TokenY.Decimals - ScallingFactorY - (TokenX.Decimals - ScallingFactorX);
+        int PricePrecision { get; }
         bool UseNative { get; }
     }
 }

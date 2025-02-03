@@ -29,6 +29,7 @@ namespace OnchainClob.Trading
 
         public event EventHandler<List<Order>>? OrdersChanged;
         public event EventHandler<bool>? AvailabilityChanged;
+        public event EventHandler<VaultTotalValuesEventArgs>? VaultTotalValuesChanged;
 
         private readonly string _vaultContractAddress;
         private readonly string _batchContractAddress;
@@ -90,6 +91,7 @@ namespace OnchainClob.Trading
             _webSocketClient.Disconnected += WebSocketClient_Disconnected;
             _webSocketClient.StateStatusChanged += WebSocketClient_StateStatusChanged;
             _webSocketClient.UserOrdersUpdated += WebSocketClient_UserOrdersUpdated;
+            _webSocketClient.VaultTotalValuesUpdated += WebSocketClient_VaultTotalValuesUpdated;
 
             _restApi = restApi ?? throw new ArgumentNullException(nameof(restApi));
 
@@ -189,8 +191,8 @@ namespace OnchainClob.Trading
                         "Native balance: {@nativeBalance}. " +
                         "Max fee: {@fee}.",
                     Symbol,
-                    balances.NativeBalance,
-                    maxFee);
+                    balances.NativeBalance.ToString(),
+                    maxFee.ToString());
                 return;
             }
 
@@ -248,7 +250,9 @@ namespace OnchainClob.Trading
 
             _logger?.LogDebug(
                 "[{@symbol}] Add {@side} pending order request with id {@id}",
-                Symbol, side, placeOrderRequestId);
+                Symbol,
+                side,
+                placeOrderRequestId);
         }
 
         public async Task<bool> OrderCancelAsync(
@@ -290,8 +294,8 @@ namespace OnchainClob.Trading
                         "Balance: {@balance}. " +
                         "Max fee: {@fee}.",
                     Symbol,
-                    balance,
-                    maxFee);
+                    balance.ToString(),
+                    maxFee.ToString());
                 return false;
             }
 
@@ -375,8 +379,8 @@ namespace OnchainClob.Trading
                             "Native balance: {@balance}. " +
                             "Max fee: {@fee}.",
                         Symbol,
-                        balances.NativeBalance,
-                        maxFee);
+                        balances.NativeBalance.ToString(),
+                        maxFee.ToString());
                     return;
                 }
 
@@ -435,7 +439,8 @@ namespace OnchainClob.Trading
 
                 _logger?.LogDebug(
                     "[{@symbol}] Add batch change order request with id {@id}",
-                    Symbol, batchChangeOrderRequestId);
+                    Symbol,
+                    batchChangeOrderRequestId);
             }
         }
 
@@ -454,7 +459,9 @@ namespace OnchainClob.Trading
 
                 _logger?.LogDebug(
                     "[{@symbol}] {@count} pending orders removed for request id {@id} before tx sending",
-                    Symbol, pendingOrders.Count, placeOrderRequestId);
+                    Symbol,
+                    pendingOrders.Count,
+                    placeOrderRequestId);
 
                 pendingOrders = [.. pendingOrders.Select(o => o with { Status = OrderStatus.CanceledAndClaimed })];
 
@@ -482,9 +489,9 @@ namespace OnchainClob.Trading
                     "Previous leave amount: {@previousLeaveAmount}. " +
                     "Input amount: {@inputAmount}.",
                     Symbol,
-                    balances.GetTokenBalanceBySide(side),
-                    previousLeaveAmount,
-                    inputAmount);
+                    balances.GetTokenBalanceBySide(side).ToString(),
+                    previousLeaveAmount.ToString(),
+                    inputAmount.ToString());
 
                 return false;
             }
@@ -506,6 +513,7 @@ namespace OnchainClob.Trading
             Side side)
         {
             return orderIds
+                .Where(orderId => orderId.GetSideFromOrderId() == side)
                 .Select((orderId, index) => qtys[index] > 0
                     ? GetInputAmount(side, prices[index], qtys[index])
                     : BigInteger.Zero)
@@ -571,14 +579,17 @@ namespace OnchainClob.Trading
                     _logger?.LogError(
                         "[{@symbol}] pending orders for request id {@id} should have " +
                             "been removed but are missing",
-                        Symbol, e.RequestId);
+                        Symbol,
+                        e.RequestId);
 
                     return;
                 }
 
                 _logger?.LogDebug(
                     "[{@symbol}] {@count} pending orders removed for request id {@id}",
-                    Symbol, pendingOrders.Count, e.RequestId);
+                    Symbol,
+                    pendingOrders.Count,
+                    e.RequestId);
 
                 pendingOrders = [.. pendingOrders
                     .Select(o => o with
@@ -592,7 +603,8 @@ namespace OnchainClob.Trading
 
                 _logger?.LogDebug(
                     "[{@symbol}] Add pending orders for txId {@txId}",
-                    Symbol, e.TxId);
+                    Symbol,
+                    e.TxId);
             }
             finally
             {
@@ -605,7 +617,8 @@ namespace OnchainClob.Trading
                 {
                     _logger?.LogError(
                         "[{@symbol}] Cannot add cancellation request with txId {id}",
-                        _symbolConfig.Symbol, e.TxId);
+                        _symbolConfig.Symbol,
+                        e.TxId);
                 }
             }
         }
@@ -681,7 +694,9 @@ namespace OnchainClob.Trading
                 {
                     _logger?.LogDebug(
                         "[{@symbol}] {@count} pending orders removed for txId {@txId} after tx failing",
-                        _symbolConfig.Symbol, pendingOrders.Count, e.Receipt.TransactionHash);
+                        _symbolConfig.Symbol,
+                        pendingOrders.Count,
+                        e.Receipt.TransactionHash);
                 }
             }
             finally
@@ -710,7 +725,9 @@ namespace OnchainClob.Trading
                     _logger?.LogDebug(
                         "[{@symbol}] {@count} pending orders removed for request with id {@id} " +
                             "after tx sending fail",
-                        _symbolConfig.Symbol, pendingOrders.Count, e.RequestId);
+                        _symbolConfig.Symbol,
+                        pendingOrders.Count,
+                        e.RequestId);
                 }
             }
             finally
@@ -753,8 +770,10 @@ namespace OnchainClob.Trading
             StartUserOrdersHandlerTask();
 
             _webSocketClient.SubscribeUserOrdersChannel(
-                userAddress: _vaultContractAddress.ToLowerInvariant(),
-                marketId: _symbolConfig.ContractAddress.ToLowerInvariant());
+                _vaultContractAddress.ToLowerInvariant(),
+                _symbolConfig.ContractAddress.ToLowerInvariant());
+
+            _webSocketClient.SubscribeVaultTotalValuesChannel();
         }
 
         private void WebSocketClient_UserOrdersUpdated(
@@ -781,6 +800,11 @@ namespace OnchainClob.Trading
             {
                 _logger?.LogError("[{@symbol}] Can't write user orders events to channel", Symbol);
             }
+        }
+
+        private void WebSocketClient_VaultTotalValuesUpdated(object sender, VaultTotalValuesEventArgs e)
+        {
+            VaultTotalValuesChanged?.Invoke(this, e);
         }
 
         private void StopUserOrdersHandlerTask()
@@ -867,7 +891,7 @@ namespace OnchainClob.Trading
             {
                 // request active orders from api
                 var (activeOrders, error) = await _restApi.GetActiveOrdersAsync(
-                    _vault.Executor.Signer.GetAddress(),
+                    _vaultContractAddress,
                     _symbolConfig.ContractAddress.ToLowerInvariant(),
                     cancellationToken: cancellationToken);
 
@@ -934,7 +958,9 @@ namespace OnchainClob.Trading
                     {
                         _logger?.LogInformation(
                             "[{@symbol}] {@count} pending orders removed for txId: {@txId}",
-                            _symbolConfig.Symbol, pendingOrders.Count, order.TxnHash);
+                            _symbolConfig.Symbol,
+                            pendingOrders.Count,
+                            order.TxnHash);
                     }
                 }
             }
