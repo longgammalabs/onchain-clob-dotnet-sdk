@@ -20,7 +20,7 @@ namespace OnchainClob.Common
             return value;
         }
 
-        public static ulong ToNormalizePrice(this decimal price, int precision, out decimal rest)
+        public static BigInteger ToNormalizePrice(this decimal price, int precision, out decimal rest)
         {
             var priceMultiplier = BigInteger.Pow(10, precision);
             var priceBigInt = price.Multiply(priceMultiplier);
@@ -29,13 +29,13 @@ namespace OnchainClob.Common
             var restBigInt = priceBigInt - result;
             rest = restBigInt.Divide(priceMultiplier);
 
-            return (ulong)result;
+            return result;
         }
 
-        public static decimal FromNormalizePrice(this ulong price, int precision)
+        public static decimal FromNormalizePrice(this BigInteger price, int precision)
         {
-            var multiplier = (decimal)Math.Pow(10, precision);
-            return price / multiplier;
+            var multiplier = BigInteger.Pow(10, precision);
+            return price.Divide(multiplier);
         }
     }
 }

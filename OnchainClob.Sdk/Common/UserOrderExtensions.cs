@@ -1,4 +1,5 @@
-﻿using OnchainClob.Client.Models;
+﻿using System.Numerics;
+using OnchainClob.Client.Models;
 using OnchainClob.Trading;
 
 namespace OnchainClob.Common
@@ -35,7 +36,7 @@ namespace OnchainClob.Common
 
             return new Order(
                 OrderId: o.OrderId,
-                Price: ulong.Parse(o.Price).FromNormalizePrice(pricePrecision),
+                Price: BigInteger.Parse(o.Price).FromNormalizePrice(pricePrecision),
                 Qty: qty,
                 LeaveQty: leaveQty,
                 ClaimedQty: claimedQty,

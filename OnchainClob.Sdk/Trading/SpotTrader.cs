@@ -190,46 +190,11 @@ namespace OnchainClob.Trading
             if (!TryNormalizeQty(qty, out var normalizedQty))
                 throw new Exception($"Invalid qty {qty}");
 
-            var inputAmount = side == Side.Sell
-                ? normalizedQty * BigInteger.Pow(10, _symbolConfig.ScallingFactorX)
-                : normalizedQty * normalizedPrice * BigInteger.Pow(10, _symbolConfig.ScallingFactorY);
-
+            var inputAmount = GetInputAmount(side, normalizedPrice, normalizedQty);
             var isFromNative = _symbolConfig.UseNative && fromToken.IsNative;
 
-            if (isFromNative)
-            {
-                if (balances.NativeBalance + balances.GetLobBalanceBySide(side) < inputAmount + maxFee)
-                {
-                    _logger?.LogError(
-                        "[{@symbol}] Insufficient native token balance for PlaceOrder. " +
-                        "Native balance: {@nativeBalance}. " +
-                        "Lob balance: {@lobBalance}. " +
-                        "Input amount: {@inputAmount}. " +
-                        "Max fee: {@maxFee}.",
-                        Symbol,
-                        balances.NativeBalance,
-                        balances.GetLobBalanceBySide(side),
-                        inputAmount,
-                        maxFee);
-                    return;
-                }
-            }
-            else
-            {
-                if (balances.GetTokenBalanceBySide(side) + balances.GetLobBalanceBySide(side) < inputAmount)
-                {
-                    _logger?.LogError(
-                        "[{@symbol}] Insufficient token balance for PlaceOrder. " +
-                        "Token balance: {@balance}. " +
-                        "Lob balance: {@lobBalance}. " +
-                        "Input amount: {@inputAmount}.",
-                        Symbol,
-                        balances.GetTokenBalanceBySide(side),
-                        balances.GetLobBalanceBySide(side),
-                        inputAmount);
-                    return;
-                }
-            }
+            if (!CheckBalance(side, balances, maxFee, BigInteger.Zero, inputAmount, isFromNative))
+                return;
 
             var expiration = DateTimeOffset.UtcNow.AddSeconds(DEFAULT_EXPIRED_SEC).ToUnixTimeSeconds();
 
@@ -423,50 +388,11 @@ namespace OnchainClob.Trading
                     ? GetPreviousLeaveAmount(_activeOrders[orderId.ToString()], side)
                     : BigInteger.Zero;
 
-                var inputAmount = side == Side.Sell
-                    ? normalizedQty * BigInteger.Pow(10, _symbolConfig.ScallingFactorX)
-                    : normalizedQty * normalizedPrice * BigInteger.Pow(10, _symbolConfig.ScallingFactorY);
-
+                var inputAmount = GetInputAmount(side, normalizedPrice, normalizedQty);
                 var isFromNative = _symbolConfig.UseNative && fromToken.IsNative;
 
-                if (isFromNative)
-                {
-                    if (balances.NativeBalance + balances.GetLobBalanceBySide(side) + previousLeaveAmount < inputAmount + maxFee)
-                    {
-                        _logger?.LogError(
-                            "[{@symbol}] Insufficient native token balance for ChangeOrder. " +
-                            "Native balance: {@nativeBalance}. " +
-                            "Lob balance: {@lobBalance}. " +
-                            "Previous leave amount: {@previousLeaveAmount}. " +
-                            "Input amount: {@inputAmount}. " +
-                            "Max fee: {@maxFee}.",
-                            Symbol,
-                            balances.NativeBalance,
-                            balances.GetLobBalanceBySide(side),
-                            previousLeaveAmount,
-                            inputAmount,
-                            maxFee);
-                        return false;
-                    }
-                }
-                else
-                {
-                    if (balances.GetTokenBalanceBySide(side) + balances.GetLobBalanceBySide(side) + previousLeaveAmount < inputAmount)
-                    {
-                        _logger?.LogError(
-                            "[{@symbol}] Insufficient token balance for ChangeOrder. " +
-                            "Token balance: {@balance}. " +
-                            "Lob balance: {@lobBalance}. " +
-                            "Previous leave amount: {@previousLeaveAmount}. " +
-                            "Input amount: {@inputAmount}.",
-                            Symbol,
-                            balances.GetTokenBalanceBySide(side),
-                            balances.GetLobBalanceBySide(side),
-                            previousLeaveAmount,
-                            inputAmount);
-                        return false;
-                    }
-                }
+                if (!CheckBalance(side, balances, maxFee, previousLeaveAmount, inputAmount, isFromNative))
+                    return false;
 
                 nativeTokenValue = isFromNative
                     ? inputAmount > balances.GetLobBalanceBySide(side) + previousLeaveAmount
@@ -605,44 +531,8 @@ namespace OnchainClob.Trading
 
                         var isFromNative = _symbolConfig.UseNative && fromToken.IsNative;
 
-                        if (isFromNative)
-                        {
-                            if (balances.NativeBalance + balances.GetLobBalanceBySide(side) + previousLeaveAmount < inputAmount + maxFee)
-                            {
-                                _logger?.LogError(
-                                    "[{@symbol}] Insufficient native token balance for BatchChangeOrder. " +
-                                    "Native balance: {@nativeBalance}. " +
-                                    "Lob balance: {@lobBalance}. " +
-                                    "Previous leave amount: {@previousLeaveAmount}. " +
-                                    "Input amount: {@inputAmount}. " +
-                                    "Max fee: {@maxFee}.",
-                                    Symbol,
-                                    balances.NativeBalance,
-                                    balances.GetLobBalanceBySide(side),
-                                    previousLeaveAmount,
-                                    inputAmount,
-                                    maxFee);
-                                return;
-                            }
-                        }
-                        else
-                        {
-                            if (balances.GetTokenBalanceBySide(side) + balances.GetLobBalanceBySide(side) + previousLeaveAmount < inputAmount)
-                            {
-                                _logger?.LogError(
-                                    "[{@symbol}] Insufficient token balance for ChangeOrder. " +
-                                    "Token balance: {@balance}. " +
-                                    "Lob balance: {@lobBalance}. " +
-                                    "Previous leave amount: {@previousLeaveAmount}. " +
-                                    "Input amount: {@inputAmount}.",
-                                    Symbol,
-                                    balances.GetTokenBalanceBySide(side),
-                                    balances.GetLobBalanceBySide(side),
-                                    previousLeaveAmount,
-                                    inputAmount);
-                                return;
-                            }
-                        }
+                        if (!CheckBalance(side, balances, maxFee, previousLeaveAmount, inputAmount, isFromNative))
+                            return;
 
                         nativeTokenValue += isFromNative
                             ? inputAmount > balances.GetLobBalanceBySide(side) + previousLeaveAmount
@@ -674,58 +564,9 @@ namespace OnchainClob.Trading
                     TransactionType = EIP1559_TRANSACTION_TYPE
                 }, cancellationToken);
 
-                var pendingOrders = new List<Order>();
-                var pendingCancellationRequests = new List<string>();
-
-                foreach (var request in batchRequests)
-                {
-                    if (request is PlaceOrderRequest placeOrderRequest)
-                    {
-                        var pendingOrder = new Order(
-                            OrderId: batchChangeOrderRequestId,
-                            Price: placeOrderRequest.Price,
-                            Qty: placeOrderRequest.Qty,
-                            LeaveQty: placeOrderRequest.Qty,
-                            ClaimedQty: 0,
-                            Side: placeOrderRequest.Side,
-                            Symbol: Symbol,
-                            Status: OrderStatus.Pending,
-                            Type: OrderType.Return,
-                            Created: DateTimeOffset.UtcNow,
-                            LastChanged: DateTimeOffset.UtcNow,
-                            TxnHash: null);
-
-                        pendingOrders.Add(pendingOrder);
-                    }
-                    else if (request is ChangeOrderRequest changeOrderRequest)
-                    {
-                        if (changeOrderRequest.Qty > 0)
-                        {
-                            var pendingOrder = new Order(
-                                OrderId: batchChangeOrderRequestId,
-                                Price: changeOrderRequest.Price,
-                                Qty: changeOrderRequest.Qty,
-                                LeaveQty: changeOrderRequest.Qty,
-                                ClaimedQty: 0,
-                                Side: changeOrderRequest.OrderId.GetSideFromOrderId(),
-                                Symbol: Symbol,
-                                Status: OrderStatus.Pending,
-                                Type: OrderType.Return,
-                                Created: DateTimeOffset.UtcNow,
-                                LastChanged: DateTimeOffset.UtcNow,
-                                TxnHash: null);
-
-                            pendingOrders.Add(pendingOrder);
-                        }
-
-                        if (changeOrderRequest.OrderId > 1)
-                            pendingCancellationRequests.Add(changeOrderRequest.OrderId.ToString());
-                    }
-                    else if (request is ClaimOrderRequest claimOrderRequest)
-                    {
-                        pendingCancellationRequests.Add(claimOrderRequest.OrderId.ToString());
-                    }
-                }
+                var (pendingOrders, pendingCancellationRequests) = CreatePendingOrdersAndCancellationRequests(
+                    batchRequests,
+                    batchChangeOrderRequestId);
 
                 if (pendingOrders.Count > 0)
                     _pendingOrders.TryAdd(batchChangeOrderRequestId, pendingOrders);
@@ -770,6 +611,59 @@ namespace OnchainClob.Trading
             return isCanceled;
         }
 
+        private bool CheckBalance(
+            Side side,
+            Balances balances,
+            BigInteger maxFee,
+            BigInteger previousLeaveAmount,
+            BigInteger inputAmount,
+            bool isFromNative)
+        {
+            if (isFromNative && (balances.NativeBalance + balances.GetLobBalanceBySide(side) + previousLeaveAmount < inputAmount + maxFee))
+            {
+                _logger?.LogError(
+                    "[{@symbol}] Insufficient native token balance for operation. " +
+                    "Native balance: {@nativeBalance}. " +
+                    "Lob balance: {@lobBalance}. " +
+                    "Previous leave amount: {@previousLeaveAmount}. " +
+                    "Input amount: {@inputAmount}. " +
+                    "Max fee: {@maxFee}.",
+                    Symbol,
+                    balances.NativeBalance,
+                    balances.GetLobBalanceBySide(side),
+                    previousLeaveAmount,
+                    inputAmount,
+                    maxFee);
+
+                return false;
+            }
+            else if (!isFromNative && (balances.GetTokenBalanceBySide(side) + balances.GetLobBalanceBySide(side) + previousLeaveAmount < inputAmount))
+            {
+                _logger?.LogError(
+                    "[{@symbol}] Insufficient token balance for operation. " +
+                    "Token balance: {@balance}. " +
+                    "Lob balance: {@lobBalance}. " +
+                    "Previous leave amount: {@previousLeaveAmount}. " +
+                    "Input amount: {@inputAmount}.",
+                    Symbol,
+                    balances.GetTokenBalanceBySide(side),
+                    balances.GetLobBalanceBySide(side),
+                    previousLeaveAmount,
+                    inputAmount);
+
+                return false;
+            }
+
+            return true;
+        }
+
+        private BigInteger GetInputAmount(Side side, BigInteger normalizedPrice, BigInteger normalizedQty)
+        {
+            return side == Side.Sell
+                ? normalizedQty * BigInteger.Pow(10, _symbolConfig.ScallingFactorX)
+                : normalizedQty * normalizedPrice * BigInteger.Pow(10, _symbolConfig.ScallingFactorY);
+        }
+
         private BigInteger GetInputAmount(
             List<ulong> orderIds,
             List<BigInteger> prices,
@@ -777,16 +671,10 @@ namespace OnchainClob.Trading
             Side side)
         {
             return orderIds
-                .Select((orderId, index) =>
-                {
-                    if (qtys[index] > 0)
-                    {
-                        return side == Side.Sell
-                            ? qtys[index] * BigInteger.Pow(10, _symbolConfig.ScallingFactorX)
-                            : qtys[index] * prices[index] * BigInteger.Pow(10, _symbolConfig.ScallingFactorY);
-                    }
-                    else return BigInteger.Zero;
-                }).Aggregate(BigInteger.Zero, (acc, value) => acc + value);
+                .Select((orderId, index) => qtys[index] > 0
+                    ? GetInputAmount(side, prices[index], qtys[index])
+                    : BigInteger.Zero)
+                .Aggregate(BigInteger.Zero, (acc, value) => acc + value);
         }
 
         private List<BigInteger> GetNormalizedQtys(IEnumerable<IOnchainClobRequest> batchRequests)
@@ -808,7 +696,7 @@ namespace OnchainClob.Trading
                 {
                     if (!TryNormalizePrice(r.Price, out var normalizedPrice))
                         throw new Exception($"Invalid significant digits count or size for price {r.Price}");
-                    return (BigInteger)normalizedPrice;
+                    return normalizedPrice;
                 })
                 .ToList();
         }
@@ -831,9 +719,7 @@ namespace OnchainClob.Trading
             if (!TryNormalizeQty(order.LeaveQty, out var normalizedQty))
                 throw new Exception($"Invalid leaveqty {order.LeaveQty}");
 
-            return side == Side.Sell
-                ? normalizedQty * BigInteger.Pow(10, _symbolConfig.ScallingFactorX)
-                : normalizedQty * normalizedPrice * BigInteger.Pow(10, _symbolConfig.ScallingFactorY);
+            return GetInputAmount(side, normalizedPrice, normalizedQty);
         }
 
         private async void Executor_TxMempooled(object sender, MempooledEventArgs e)
@@ -887,6 +773,66 @@ namespace OnchainClob.Trading
                         _symbolConfig.Symbol, e.TxId);
                 }
             }
+        }
+
+        private (List<Order> pendingOrders, List<string> pendingCancellationRequests) CreatePendingOrdersAndCancellationRequests(
+            IEnumerable<IOnchainClobRequest> batchRequests,
+            string batchChangeOrderRequestId)
+        {
+            var pendingOrders = new List<Order>();
+            var pendingCancellationRequests = new List<string>();
+
+            foreach (var request in batchRequests)
+            {
+                if (request is PlaceOrderRequest placeOrderRequest)
+                {
+                    var pendingOrder = new Order(
+                        OrderId: batchChangeOrderRequestId,
+                        Price: placeOrderRequest.Price,
+                        Qty: placeOrderRequest.Qty,
+                        LeaveQty: placeOrderRequest.Qty,
+                        ClaimedQty: 0,
+                        Side: placeOrderRequest.Side,
+                        Symbol: Symbol,
+                        Status: OrderStatus.Pending,
+                        Type: OrderType.Return,
+                        Created: DateTimeOffset.UtcNow,
+                        LastChanged: DateTimeOffset.UtcNow,
+                        TxnHash: null);
+
+                    pendingOrders.Add(pendingOrder);
+                }
+                else if (request is ChangeOrderRequest changeOrderRequest)
+                {
+                    if (changeOrderRequest.Qty > 0)
+                    {
+                        var pendingOrder = new Order(
+                            OrderId: batchChangeOrderRequestId,
+                            Price: changeOrderRequest.Price,
+                            Qty: changeOrderRequest.Qty,
+                            LeaveQty: changeOrderRequest.Qty,
+                            ClaimedQty: 0,
+                            Side: changeOrderRequest.OrderId.GetSideFromOrderId(),
+                            Symbol: Symbol,
+                            Status: OrderStatus.Pending,
+                            Type: OrderType.Return,
+                            Created: DateTimeOffset.UtcNow,
+                            LastChanged: DateTimeOffset.UtcNow,
+                            TxnHash: null);
+
+                        pendingOrders.Add(pendingOrder);
+                    }
+
+                    if (changeOrderRequest.OrderId > 1)
+                        pendingCancellationRequests.Add(changeOrderRequest.OrderId.ToString());
+                }
+                else if (request is ClaimOrderRequest claimOrderRequest)
+                {
+                    pendingCancellationRequests.Add(claimOrderRequest.OrderId.ToString());
+                }
+            }
+
+            return (pendingOrders, pendingCancellationRequests);
         }
 
         private async void Executor_TxFailed(object sender, ConfirmedEventArgs e)
@@ -1163,10 +1109,9 @@ namespace OnchainClob.Trading
             }
         }
 
-        private bool TryNormalizePrice(decimal price, out ulong normalizedPrice)
+        private bool TryNormalizePrice(decimal price, out BigInteger normalizedPrice)
         {
             normalizedPrice = price.ToNormalizePrice(_symbolConfig.PricePrecision, out var rest);
-
             return rest == 0;
         }
 
