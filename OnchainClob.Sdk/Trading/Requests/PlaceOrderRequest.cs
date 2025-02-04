@@ -8,6 +8,6 @@ namespace OnchainClob.Trading.Requests
         public decimal Price { get; init; }
         public decimal Qty { get; init; }
         public Side Side { get; init; }
-        public ulong OrderId => 0;
+        public ulong OrderId => Side == Side.Buy ? 0u : 1u;
     }
 }

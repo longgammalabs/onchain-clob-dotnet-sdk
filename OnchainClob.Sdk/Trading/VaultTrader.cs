@@ -382,7 +382,7 @@ namespace OnchainClob.Trading
 
             var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
 
-            foreach (var (batchGasLimit, batchRequests) in SplitIntoSeveralBatches(requests).ToList())
+            foreach (var (batchGasLimit, batchRequests) in requests.SplitIntoSeveralBatches(_defaultGasLimits))
             {
                 var orderIds = batchRequests.Select(r => r.OrderId).ToList();
                 var prices = GetNormalizedPrices(batchRequests);
@@ -399,7 +399,7 @@ namespace OnchainClob.Trading
                     string.Join(", ", orderIds),
                     string.Join(", ", prices),
                     string.Join(", ", qtys),
-                    maxFee);
+                    maxFee.ToString());
 
                 var (balances, balancesError) = await _balanceManager.GetAvailableBalancesAsync(
                     _symbolConfig.ContractAddress,
@@ -1046,48 +1046,6 @@ namespace OnchainClob.Trading
             normalizedQty = qty.Multiply(multiplier);
 
             return normalizedQty.Divide(multiplier) == qty;
-        }
-
-        private IEnumerable<(ulong?, IEnumerable<ITraderRequest>)> SplitIntoSeveralBatches(
-            IEnumerable<ITraderRequest> requests)
-        {
-            var requestsList = requests.ToList();
-
-            if (_defaultGasLimits == null)
-            {
-                yield return (null, requests);
-                yield break;
-            }
-
-            var totalGasLimit = 0ul;
-            var batch = new List<ITraderRequest>();
-
-            foreach (var request in requestsList)
-            {
-                var gasLimit = request switch
-                {
-                    PlaceOrderRequest => _defaultGasLimits.PlaceOrder,
-                    ClaimOrderRequest => _defaultGasLimits.ClaimOrder,
-                    ChangeOrderRequest => _defaultGasLimits.ChangeOrder,
-                    _ => 0ul
-                };
-
-                if (totalGasLimit + gasLimit > _defaultGasLimits.MaxPerTransaction)
-                {
-                    yield return (totalGasLimit, batch.ToList());
-
-                    totalGasLimit = gasLimit;
-                    batch.Clear();
-                    batch.Add(request);
-                }
-                else
-                {
-                    totalGasLimit += gasLimit;
-                    batch.Add(request);
-                }
-            }
-
-            yield return (totalGasLimit, batch.ToList());
         }
     }
 }
