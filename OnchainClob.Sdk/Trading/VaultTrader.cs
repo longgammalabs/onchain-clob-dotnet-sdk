@@ -382,12 +382,24 @@ namespace OnchainClob.Trading
 
             var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
 
-            foreach (var (batchGasLimit, batchRequests) in SplitIntoSeveralBatches(requests))
+            foreach (var (batchGasLimit, batchRequests) in SplitIntoSeveralBatches(requests).ToList())
             {
                 var orderIds = batchRequests.Select(r => r.OrderId).ToList();
                 var prices = GetNormalizedPrices(batchRequests);
                 var qtys = GetNormalizedQtys(batchRequests);
                 var maxFee = maxFeePerGas * batchGasLimit ?? 0;
+
+                _logger?.LogDebug("[{@symbol}] Batching {@count} requests. " +
+                    "Order ids: {@orderIds}, " +
+                    "Prices: {@prices}, " +
+                    "Qtys: {@qtys}, " +
+                    "Max fee: {@maxFee}",
+                    Symbol,
+                    batchRequests.Count(),
+                    string.Join(", ", orderIds),
+                    string.Join(", ", prices),
+                    string.Join(", ", qtys),
+                    maxFee);
 
                 var (balances, balancesError) = await _balanceManager.GetAvailableBalancesAsync(
                     _symbolConfig.ContractAddress,
@@ -1039,6 +1051,8 @@ namespace OnchainClob.Trading
         private IEnumerable<(ulong?, IEnumerable<ITraderRequest>)> SplitIntoSeveralBatches(
             IEnumerable<ITraderRequest> requests)
         {
+            var requestsList = requests.ToList();
+
             if (_defaultGasLimits == null)
             {
                 yield return (null, requests);
@@ -1048,7 +1062,7 @@ namespace OnchainClob.Trading
             var totalGasLimit = 0ul;
             var batch = new List<ITraderRequest>();
 
-            foreach (var request in requests)
+            foreach (var request in requestsList)
             {
                 var gasLimit = request switch
                 {
@@ -1060,10 +1074,11 @@ namespace OnchainClob.Trading
 
                 if (totalGasLimit + gasLimit > _defaultGasLimits.MaxPerTransaction)
                 {
-                    yield return (totalGasLimit, batch);
+                    yield return (totalGasLimit, batch.ToList());
 
                     totalGasLimit = gasLimit;
-                    batch = [request];
+                    batch.Clear();
+                    batch.Add(request);
                 }
                 else
                 {
@@ -1072,7 +1087,7 @@ namespace OnchainClob.Trading
                 }
             }
 
-            yield return (totalGasLimit, batch);
+            yield return (totalGasLimit, batch.ToList());
         }
     }
 }
