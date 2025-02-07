@@ -10,7 +10,11 @@ using TransactionReceipt = Revelium.Evm.Rpc.Models.TransactionReceipt;
 
 namespace OnchainClob.Client.Rpc
 {
-    public class RpcSequencer : IExecutor
+    /// <summary>
+    /// Executes blockchain transactions asynchronously with local request queuing and rate limiting.
+    /// Provides ordered transaction execution with configurable local queue to prevent RPC server overload.
+    /// </summary>
+    public class RpcQueuedAsyncExecutor : IExecutor
     {
         private const int RPC_QUEUE_SIZE = 16;
         private const int TRACKER_UPDATE_INTERVAL_SEC = 3;
@@ -19,21 +23,44 @@ namespace OnchainClob.Client.Rpc
         private readonly RpcCallSequencer _sequencer;
         private readonly ISigner _signer;
         private readonly RpcTransactionTracker _tracker;
-        private readonly ILogger<RpcSequencer>? _logger;
+        private readonly ILogger<RpcQueuedAsyncExecutor>? _logger;
         private readonly ConcurrentDictionary<string, string> _txIdToCallId = [];
 
+        /// <summary>
+        /// Fired when a transaction is successfully added to the mempool.
+        /// </summary>
         public event EventHandler<MempooledEventArgs>? TxMempooled;
+        /// <summary>
+        /// Fired when a transaction is successfully confirmed on the blockchain.
+        /// </summary>
         public event EventHandler<ConfirmedEventArgs>? TxSuccessful;
+        /// <summary>
+        /// Fired when a transaction fails after being confirmed on the blockchain.
+        /// </summary>
         public event EventHandler<ConfirmedEventArgs>? TxFailed;
+        /// <summary>
+        /// Fired when an error occurs while sending a transaction.
+        /// </summary>
         public event EventHandler<ErrorEventArgs>? Error;
 
+        /// <summary>
+        /// Gets the signer used by the executor.
+        /// </summary>
         public ISigner Signer => _signer;
 
-        public RpcSequencer(
+        /// <summary>
+        /// Initializes a new instance of the RpcQueuedAsyncExecutor class.
+        /// </summary>
+        /// <param name="rpc">The RPC client.</param>
+        /// <param name="signer">The signer for transaction signing.</param>
+        /// <param name="tracker">The transaction tracker for monitoring transaction status.</param>
+        /// <param name="logger">Optional logger.</param>
+        /// <exception cref="ArgumentNullException">Thrown when rpc, signer, or tracker is null.</exception>
+        public RpcQueuedAsyncExecutor(
             RpcClient rpc,
             ISigner signer,
             RpcTransactionTracker tracker,
-            ILogger<RpcSequencer>? logger = null)
+            ILogger<RpcQueuedAsyncExecutor>? logger = null)
         {
             _signer = signer ?? throw new ArgumentNullException(nameof(signer));
             _logger = logger;
@@ -46,6 +73,15 @@ namespace OnchainClob.Client.Rpc
             _sequencer = RpcCallSequencer.GetOrAddInstance(_rpc, _signer, RPC_QUEUE_SIZE);
         }
 
+        /// <summary>
+        /// Executes a blockchain transaction asynchronously.
+        /// </summary>
+        /// <param name="requestParams">The transaction request parameters.</param>
+        /// <param name="cancellationToken">Optional token to cancel the operation.</param>
+        /// <returns>
+        /// A unique request identifier that can be used to track the transaction status.
+        /// Status updates are provided through events (TxMempooled, TxSuccessful, TxFailed, Error).
+        /// </returns>
         public async Task<string> ExecuteAsync(
             TransactionRequestParams requestParams,
             CancellationToken cancellationToken = default)
@@ -57,9 +93,16 @@ namespace OnchainClob.Client.Rpc
                 cancellationToken);
         }
 
+        /// <summary>
+        /// Tries to cancel a pending transaction request if possible.
+        /// </summary>
+        /// <param name="requestId">The unique identifier of the request to cancel.</param>
+        /// <param name="cancellationToken">Optional token to cancel the operation.</param>
+        /// <returns>True if the request was successfully canceled, false otherwise.</returns>
         public Task<bool> TryCancelRequestAsync(
             string requestId,
             CancellationToken cancellationToken = default)
+
         {
             return _sequencer.TryCancelAsync(requestId, cancellationToken);
         }

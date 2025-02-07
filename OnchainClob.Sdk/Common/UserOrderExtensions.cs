@@ -31,6 +31,7 @@ namespace OnchainClob.Common
                 "cancelled" => OrderStatus.CanceledAndClaimed,
                 "claimed" when claimedQty < qty => OrderStatus.PartiallyFilledAndClaimed,
                 "claimed" when claimedQty == qty => OrderStatus.FilledAndClaimed,
+                "rejected" => OrderStatus.Rejected,
                 _ => throw new NotSupportedException($"Unknown order status")
             };
 
