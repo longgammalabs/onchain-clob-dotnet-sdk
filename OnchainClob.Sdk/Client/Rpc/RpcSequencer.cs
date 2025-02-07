@@ -1,6 +1,6 @@
-﻿using OnchainClob.Trading.Abstract;
+﻿using Microsoft.Extensions.Logging;
+using OnchainClob.Client.Abstract;
 using OnchainClob.Trading.Events;
-using Microsoft.Extensions.Logging;
 using Revelium.Evm.Common.Events;
 using Revelium.Evm.Crypto.Abstract;
 using Revelium.Evm.Rpc;
@@ -8,7 +8,7 @@ using System.Collections.Concurrent;
 using ErrorEventArgs = OnchainClob.Trading.Events.ErrorEventArgs;
 using TransactionReceipt = Revelium.Evm.Rpc.Models.TransactionReceipt;
 
-namespace OnchainClob.Trading
+namespace OnchainClob.Client.Rpc
 {
     public class RpcSequencer : IExecutor
     {

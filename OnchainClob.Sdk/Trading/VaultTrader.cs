@@ -112,7 +112,6 @@ namespace OnchainClob.Trading
             _pendingOrders = [];
             _pendingRequests = [];
             _activeOrders = [];
-
         }
 
         public List<Order> GetActiveOrders(bool pending = true)

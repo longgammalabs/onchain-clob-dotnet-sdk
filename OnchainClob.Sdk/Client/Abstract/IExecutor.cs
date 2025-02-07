@@ -3,7 +3,7 @@ using Revelium.Evm.Crypto.Abstract;
 using Revelium.Evm.Rpc;
 using ErrorEventArgs = OnchainClob.Trading.Events.ErrorEventArgs;
 
-namespace OnchainClob.Trading.Abstract
+namespace OnchainClob.Client.Abstract
 {
     public interface IExecutor
     {
