@@ -5,7 +5,7 @@ using System.Numerics;
 namespace OnchainClob.Abi.Lob
 {
     [Function("withdrawTokens")]
-    public class WithdrawTokensFunction : FunctionMessage
+    public class WithdrawTokens : FunctionMessage
     {
         [Parameter("bool", "withdraw_all", 1)]
         public bool WithdrawAll { get; set; }

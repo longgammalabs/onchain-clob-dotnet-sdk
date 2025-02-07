@@ -18,7 +18,7 @@ namespace OnchainClob.Trading
 {
     public class VaultTrader : IVaultTrader
     {
-        private const long BASE_FEE_PER_GAS = 100_000_000_000;
+        private const long BASE_FEE_PER_GAS = 200_000_000_000;
         private const string ALL_MARKETS = "allMarkets";
         private const int PENDING_CALLS_CHECK_INTERVAL_MS = 10;
         private readonly BigInteger UINT128_MAX_VALUE = (BigInteger.One << 128) - 1;
@@ -156,6 +156,7 @@ namespace OnchainClob.Trading
             Side side,
             bool marketOnly = false,
             bool postOnly = false,
+            bool transferExecutedTokens = false,
             CancellationToken cancellationToken = default)
         {
             var fromToken = side == Side.Sell
@@ -276,6 +277,7 @@ namespace OnchainClob.Trading
 
         public async Task<bool> OrderCancelAsync(
             ulong orderId,
+            bool transferTokens = false,
             CancellationToken cancellationToken = default)
         {
             // return false if order has already been canceled
@@ -348,9 +350,21 @@ namespace OnchainClob.Trading
             return true;
         }
 
+        public Task<bool> OrderModifyAsync(
+            ulong orderId,
+            decimal price,
+            decimal qty,
+            bool postOnly = false,
+            bool transferTokens = false,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException("OrderModify not supported");
+        }
+
         public async Task BatchAsync(
             IEnumerable<ITraderRequest> requests,
             bool postOnly = false,
+            bool transferTokens = false,
             CancellationToken cancellationToken = default)
         {
             // try cancel pending orders

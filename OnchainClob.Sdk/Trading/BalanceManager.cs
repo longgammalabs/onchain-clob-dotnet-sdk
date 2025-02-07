@@ -149,8 +149,12 @@ namespace OnchainClob.Trading
                     NativeBalance = _nativeBalance,
                     TokenBalanceX = GetCachedTokenBalance(symbolConfig.TokenX.ContractAddress),
                     TokenBalanceY = GetCachedTokenBalance(symbolConfig.TokenY.ContractAddress),
-                    LobBalanceX = _lobBalancesTokenX[lobContractAddress.ToLowerInvariant()],
-                    LobBalanceY = _lobBalancesTokenY[lobContractAddress.ToLowerInvariant()],
+                    LobBalanceX = _lobBalancesTokenX.TryGetValue(lobContractAddress.ToLowerInvariant(), out var balanceX)
+                        ? balanceX
+                        : BigInteger.Zero,
+                    LobBalanceY = _lobBalancesTokenY.TryGetValue(lobContractAddress.ToLowerInvariant(), out var balanceY)
+                        ? balanceY
+                        : BigInteger.Zero,
                 };
             }
 

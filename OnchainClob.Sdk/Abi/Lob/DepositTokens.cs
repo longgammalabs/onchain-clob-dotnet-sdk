@@ -5,7 +5,7 @@ using System.Numerics;
 namespace OnchainClob.Abi.Lob
 {
     [Function("depositTokens")]
-    public class DepositTokensFunction : FunctionMessage
+    public class DepositTokens : FunctionMessage
     {
         [Parameter("uint128", "token_x_amount", 1)]
         public BigInteger TokenXAmount { get; set; }

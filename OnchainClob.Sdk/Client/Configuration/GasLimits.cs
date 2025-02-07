@@ -6,5 +6,6 @@
         public ulong ClaimOrder { get; init; }
         public ulong ChangeOrder { get; init; }
         public ulong MaxPerTransaction { get; init; }
+        public ulong Deposit { get; init; }
     }
 }

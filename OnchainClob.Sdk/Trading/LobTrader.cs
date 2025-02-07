@@ -16,9 +16,9 @@ using ErrorEventArgs = OnchainClob.Trading.Events.ErrorEventArgs;
 
 namespace OnchainClob.Trading
 {
-    public class LobTrader : ILobTrader
+    public class LobTrader : ITrader
     {
-        private const long BASE_FEE_PER_GAS = 100_000_000_000;
+        private const long BASE_FEE_PER_GAS = 200_000_000_000;
         private const string ALL_MARKETS = "allMarkets";
         private const int PENDING_CALLS_CHECK_INTERVAL_MS = 10;
         private readonly BigInteger UINT128_MAX_VALUE = (BigInteger.One << 128) - 1;
@@ -224,7 +224,8 @@ namespace OnchainClob.Trading
                 GasLimit = _defaultGasLimits?.PlaceOrder,
                 EstimateGas = true,
                 EstimateGasReserveInPercent = ESTIMATE_GAS_RESERVE_IN_PERCENTS,
-                TransactionType = EIP1559_TRANSACTION_TYPE
+                TransactionType = EIP1559_TRANSACTION_TYPE,
+                ChainId = _rpc.ChainId
             }, cancellationToken);
 
             var pendingOrder = new Order(
@@ -309,7 +310,9 @@ namespace OnchainClob.Trading
                 MaxPriorityFeePerGas = maxPriorityFeePerGas,
                 GasLimit = _defaultGasLimits?.ClaimOrder,
                 EstimateGas = true,
-                EstimateGasReserveInPercent = ESTIMATE_GAS_RESERVE_IN_PERCENTS
+                EstimateGasReserveInPercent = ESTIMATE_GAS_RESERVE_IN_PERCENTS,
+                TransactionType = EIP1559_TRANSACTION_TYPE,
+                ChainId = _rpc.ChainId
             }, cancellationToken);
 
             _pendingCancellationRequests.TryAdd(claimOrderRequestId, [orderId.ToString()]);
@@ -423,7 +426,8 @@ namespace OnchainClob.Trading
                 GasLimit = _defaultGasLimits?.ChangeOrder,
                 EstimateGas = true,
                 EstimateGasReserveInPercent = ESTIMATE_GAS_RESERVE_IN_PERCENTS,
-                TransactionType = EIP1559_TRANSACTION_TYPE
+                TransactionType = EIP1559_TRANSACTION_TYPE,
+                ChainId = _rpc.ChainId
             }, cancellationToken);
 
             if (orderId > 1)
@@ -575,7 +579,8 @@ namespace OnchainClob.Trading
                     GasLimit = batchGasLimit,
                     EstimateGas = true,
                     EstimateGasReserveInPercent = ESTIMATE_GAS_RESERVE_IN_PERCENTS,
-                    TransactionType = EIP1559_TRANSACTION_TYPE
+                    TransactionType = EIP1559_TRANSACTION_TYPE,
+                    ChainId = _rpc.ChainId
                 }, cancellationToken);
 
                 var (pendingOrders, pendingCancellationRequests) = CreatePendingOrdersAndCancellationRequests(
@@ -626,6 +631,63 @@ namespace OnchainClob.Trading
             }
 
             return isCanceled;
+        }
+
+        public async Task DepositAsync(
+            BigInteger amountTokenX,
+            BigInteger amountTokenY,
+            CancellationToken cancellationToken = default)
+        {
+            // get native balance
+            var (balance, balanceError) = await _balanceManager.GetNativeBalanceAsync(
+                forceUpdate: true,
+                cancellationToken);
+
+            if (balanceError != null)
+            {
+                _logger?.LogError(balanceError, "[{@symbol}] Get native balance error", Symbol);
+                return;
+            }
+
+            // get max priority fee per gas
+            var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
+                cancellationToken);
+
+            if (maxPriorityFeeError != null)
+            {
+                _logger?.LogError(maxPriorityFeeError, "[{@symbol}] Get max prirority fee per gas error", Symbol);
+                return;
+            }
+
+            var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
+            var maxFee = maxFeePerGas * (_defaultGasLimits?.Deposit ?? 0);
+
+            if (balance < maxFee)
+            {
+                _logger?.LogError(
+                    "[{@symbol}] Insufficient native token balance for Deposit fee. " +
+                        "Balance: {@balance}. " +
+                        "Max fee: {@fee}.",
+                    Symbol,
+                    balance.ToString(),
+                    maxFee.ToString());
+                return;
+            }
+
+            var depositRequestId = await _lob.DepositTokensAsync(new DepositTokensParams
+            {
+                TokenXAmount = amountTokenX,
+                TokenYAmount = amountTokenY,
+
+                ContractAddress = _symbolConfig.ContractAddress.ToLowerInvariant(),
+                MaxFeePerGas = maxFeePerGas,
+                MaxPriorityFeePerGas = maxPriorityFeePerGas,
+                GasLimit = _defaultGasLimits?.Deposit,
+                EstimateGas = true,
+                EstimateGasReserveInPercent = ESTIMATE_GAS_RESERVE_IN_PERCENTS,
+                TransactionType = EIP1559_TRANSACTION_TYPE,
+                ChainId = _rpc.ChainId
+            }, cancellationToken);
         }
 
         private bool CheckBalance(

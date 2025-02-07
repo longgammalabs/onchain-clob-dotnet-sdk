@@ -12,6 +12,12 @@ using System.Numerics;
 
 namespace OnchainClob.Client.Lob
 {
+    public class DepositTokensParams : TransactionParams
+    {
+        public BigInteger TokenXAmount { get; init; }
+        public BigInteger TokenYAmount { get; init; }
+    }
+
     public class PlaceOrderParams : TransactionParams
     {
         public bool IsAsk { get; init; }
@@ -85,7 +91,44 @@ namespace OnchainClob.Client.Lob
                 TransactionType = @params.TransactionType
             };
 
-            var txInput = approve.CreateTransactionInput(@params.ContractAddress, @params.ChainId ?? 0);
+            var txInput = approve.CreateTransactionInput(
+                @params.ContractAddress,
+                @params.ChainId ?? 0);
+
+            var requestParams = new TransactionRequestParams
+            {
+                Tx = TxInputToTxRequest(txInput),
+                EstimateGas = @params.EstimateGas,
+                EstimateGasReserveInPercent = @params.EstimateGasReserveInPercent,
+            };
+
+            return await Executor.ExecuteAsync(
+                requestParams,
+                cancellationToken);
+        }
+
+        public async Task<string> DepositTokensAsync(
+            DepositTokensParams @params,
+            CancellationToken cancellationToken = default)
+        {
+            var depositTokens = new DepositTokens
+            {
+                TokenXAmount = @params.TokenXAmount,
+                TokenYAmount = @params.TokenYAmount,
+
+                FromAddress = Executor.Signer.GetAddress(),
+                AmountToSend = @params.Value,
+                GasPrice = @params.GasPrice,
+                Gas = @params.GasLimit,
+                MaxFeePerGas = @params.MaxFeePerGas,
+                MaxPriorityFeePerGas = @params.MaxPriorityFeePerGas,
+                Nonce = @params.Nonce,
+                TransactionType = @params.TransactionType
+            };
+
+            var txInput = depositTokens.CreateTransactionInput(
+                @params.ContractAddress,
+                @params.ChainId ?? 0);
 
             var requestParams = new TransactionRequestParams
             {
@@ -124,7 +167,9 @@ namespace OnchainClob.Client.Lob
                 TransactionType = @params.TransactionType
             };
 
-            var txInput = placeOrder.CreateTransactionInput(@params.ContractAddress, @params.ChainId ?? 0);
+            var txInput = placeOrder.CreateTransactionInput(
+                @params.ContractAddress,
+                @params.ChainId ?? 0);
 
             var requestParams = new TransactionRequestParams
             {
@@ -158,7 +203,9 @@ namespace OnchainClob.Client.Lob
                 TransactionType = @params.TransactionType
             };
 
-            var txInput = claimOrder.CreateTransactionInput(@params.ContractAddress, @params.ChainId ?? 0);
+            var txInput = claimOrder.CreateTransactionInput(
+                @params.ContractAddress,
+                @params.ChainId ?? 0);
 
             var requestParams = new TransactionRequestParams
             {
@@ -196,7 +243,9 @@ namespace OnchainClob.Client.Lob
                 TransactionType = @params.TransactionType
             };
 
-            var txInput = changeOrder.CreateTransactionInput(@params.ContractAddress, @params.ChainId ?? 0);
+            var txInput = changeOrder.CreateTransactionInput(
+                @params.ContractAddress,
+                @params.ChainId ?? 0);
 
             var requestParams = new TransactionRequestParams
             {
@@ -230,7 +279,9 @@ namespace OnchainClob.Client.Lob
                 TransactionType = @params.TransactionType
             };
 
-            var txInput = batchClaim.CreateTransactionInput(@params.ContractAddress, @params.ChainId ?? 0);
+            var txInput = batchClaim.CreateTransactionInput(
+                @params.ContractAddress,
+                @params.ChainId ?? 0);
 
             var requestParams = new TransactionRequestParams
             {
@@ -268,7 +319,9 @@ namespace OnchainClob.Client.Lob
                 TransactionType = @params.TransactionType
             };
 
-            var txInput = batchChangeOrder.CreateTransactionInput(@params.ContractAddress, @params.ChainId ?? 0);
+            var txInput = batchChangeOrder.CreateTransactionInput(
+                @params.ContractAddress,
+                @params.ChainId ?? 0);
 
             var requestParams = new TransactionRequestParams
             {

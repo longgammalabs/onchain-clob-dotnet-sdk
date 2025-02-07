@@ -1,9 +1,9 @@
-﻿using OnchainClob.Common;
+using OnchainClob.Common;
 using OnchainClob.Trading.Requests;
 
 namespace OnchainClob.Trading.Abstract
 {
-    public interface ILobTrader
+    public interface ITrader
     {
         event EventHandler<List<Order>> OrdersChanged;
         event EventHandler<bool>? AvailabilityChanged;
