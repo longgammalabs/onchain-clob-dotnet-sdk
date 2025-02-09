@@ -37,6 +37,7 @@ namespace OnchainClob.Trading.Abstract
         protected readonly ConcurrentDictionary<string, List<Order>> _pendingOrders;
         protected readonly ConcurrentDictionary<string, bool> _pendingRequests;
         protected readonly Dictionary<string, Order> _activeOrders;
+        protected readonly Dictionary<string, Order> _filledUnclaimedOrders;
 
         private bool _isAvailable;
         public bool IsAvailable
@@ -83,6 +84,7 @@ namespace OnchainClob.Trading.Abstract
             _pendingOrders = [];
             _pendingRequests = [];
             _activeOrders = [];
+            _filledUnclaimedOrders = [];
         }
 
         public List<Order> GetActiveOrders(bool pending = true)
@@ -108,6 +110,20 @@ namespace OnchainClob.Trading.Abstract
                 _ordersSync.Wait();
 
                 return [.. _pendingOrders.Values.SelectMany(o => o)];
+            }
+            finally
+            {
+                _ordersSync.Release();
+            }
+        }
+
+        public List<Order> GetFilledUnclaimedOrders()
+        {
+            try
+            {
+                _ordersSync.Wait();
+
+                return [.. _filledUnclaimedOrders.Values];
             }
             finally
             {
@@ -313,7 +329,9 @@ namespace OnchainClob.Trading.Abstract
             IsAvailable = false;
 
             StopUserOrdersHandlerTask();
+
             _activeOrders.Clear();
+            _filledUnclaimedOrders.Clear();
         }
 
         private void WebSocketClient_StateStatusChanged(object? sender, StateStatus status)
@@ -325,7 +343,9 @@ namespace OnchainClob.Trading.Abstract
                 IsAvailable = false;
 
                 StopUserOrdersHandlerTask();
+
                 _activeOrders.Clear();
+                _filledUnclaimedOrders.Clear();
                 return;
             }
 
@@ -494,10 +514,21 @@ namespace OnchainClob.Trading.Abstract
                     {
                         _activeOrders[order.OrderId] = order;
                     }
-                    else
+                    else if (order.Status == OrderStatus.Filled)
                     {
                         // remove history order from active orders
                         _activeOrders.Remove(order.OrderId, out var _);
+
+                        // add filled order to unclaimed orders
+                        _filledUnclaimedOrders[order.OrderId] = order;
+                    }
+                    else
+                    {
+                        // remove history order from active orders, if exists
+                        _activeOrders.Remove(order.OrderId, out _);
+
+                        // remove history order from filled unclaimed orders, if exists
+                        _filledUnclaimedOrders.Remove(order.OrderId, out _);
 
                         // try to remove canceled order entry after some delay
                         _ = Task.Delay(CANCELED_ORDERS_TTL_MS)
@@ -592,9 +623,14 @@ namespace OnchainClob.Trading.Abstract
         {
             return orderIds
                 .Where(orderId => orderId > 1)
-                .Select(orderId => _activeOrders[orderId.ToString()])
-                .Where(order => order.Side == side)
-                .Select(order => GetPreviousLeaveAmount(order, side))
+                .Select(orderId =>
+                {
+                    return _activeOrders.TryGetValue(orderId.ToString(), out var activeOrder)
+                        ? activeOrder
+                        : null;
+                })
+                .Where(order => order != null && order.Side == side)
+                .Select(order => GetPreviousLeaveAmount(order!, side))
                 .Aggregate(BigInteger.Zero, (acc, value) => acc + value);
         }
 

@@ -13,6 +13,7 @@ namespace OnchainClob.Client
         public async Task<Result<List<UserOrder>>> GetActiveOrdersAsync(
             string userAddress,
             string marketId,
+            bool includeFilled = true,
             int limit = int.MaxValue,
             CancellationToken cancellationToken = default)
         {
@@ -21,6 +22,7 @@ namespace OnchainClob.Client
                 RequestUri = new Uri(Url.Combine(_url, $"/orders?" +
                     $"user={userAddress}&" +
                     $"status=open&" +
+                    (includeFilled ? "status=filled&" : "") +
                     $"market={marketId}&" +
                     $"limit={limit}")),
                 Method = HttpMethod.Get

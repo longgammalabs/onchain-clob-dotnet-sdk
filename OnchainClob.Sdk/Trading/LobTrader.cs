@@ -293,8 +293,8 @@ namespace OnchainClob.Trading
 
             if (qty > 0)
             {
-                var previousLeaveAmount = orderId > 1
-                    ? GetPreviousLeaveAmount(_activeOrders[orderId.ToString()], side)
+                var previousLeaveAmount = orderId > 1 && _activeOrders.TryGetValue(orderId.ToString(), out var activeOrder)
+                    ? GetPreviousLeaveAmount(activeOrder, side)
                     : BigInteger.Zero;
 
                 var inputAmount = GetInputAmount(side, normalizedPrice, normalizedQty);

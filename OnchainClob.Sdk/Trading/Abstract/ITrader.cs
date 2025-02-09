@@ -10,6 +10,7 @@ namespace OnchainClob.Trading.Abstract
 
         List<Order> GetActiveOrders(bool pending = true);
         List<Order> GetPendingOrders();
+        List<Order> GetFilledUnclaimedOrders();
         bool IsOrderCanceled(ulong orderId);
 
         Task OrderSendAsync(
