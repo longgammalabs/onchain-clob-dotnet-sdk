@@ -16,6 +16,8 @@ namespace OnchainClob.Client.Rpc
     /// </summary>
     public class RpcAsyncExecutor : IExecutor
     {
+        private const int TRACKER_UPDATE_INTERVAL_SEC = 3;
+
         private readonly RpcClient _rpc;
         private readonly ISigner _signer;
         private readonly RpcTransactionTracker _tracker;
@@ -86,6 +88,7 @@ namespace OnchainClob.Client.Rpc
                 requestParams.EstimateGas,
                 requestParams.EstimateGasReserveInPercent,
                 networkId: null,
+                logger: _logger,
                 cancellationToken);
 
             var requestId = Guid.NewGuid().ToString();
@@ -109,6 +112,10 @@ namespace OnchainClob.Client.Rpc
                             RequestId = requestId,
                             TxId = txId
                         });
+
+                        _ = _tracker.TrackTransactionAsync(
+                            txId,
+                            updateInterval: TimeSpan.FromSeconds(TRACKER_UPDATE_INTERVAL_SEC));
                     }
                 }
                 catch (Exception ex)
