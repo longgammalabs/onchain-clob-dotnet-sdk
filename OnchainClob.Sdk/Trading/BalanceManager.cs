@@ -6,6 +6,7 @@ using OnchainClob.Common;
 using Revelium.Evm.Common;
 using Revelium.Evm.Rpc;
 using Revelium.Evm.Rpc.Parameters;
+using System.Collections.Concurrent;
 using System.Numerics;
 using Error = Incendium.Error;
 
@@ -30,11 +31,13 @@ namespace OnchainClob.Trading
         private readonly RpcClient _rpc;
         private readonly string _fromAddress;
         private readonly string _vaultAddress;
-        private BigInteger _nativeBalance;
-        private readonly Dictionary<string, BigInteger> _tokenBalances = [];
-        private readonly Dictionary<string, BigInteger> _lobBalancesTokenX = [];
-        private readonly Dictionary<string, BigInteger> _lobBalancesTokenY = [];
+
+        private readonly ConcurrentDictionary<string, BigInteger> _tokenBalances = [];
+        private readonly ConcurrentDictionary<string, BigInteger> _lobBalancesTokenX = [];
+        private readonly ConcurrentDictionary<string, BigInteger> _lobBalancesTokenY = [];
         private readonly Dictionary<string, ISymbolConfig> _symbolConfigs = [];
+        private readonly object _nativeBalanceSync = new();
+        private BigInteger _nativeBalance;
 
         public BalanceManager(
             RpcClient rpc,
@@ -65,7 +68,11 @@ namespace OnchainClob.Trading
             if (balanceError != null)
                 return balanceError;
 
-            _nativeBalance = balance;
+            lock (_nativeBalanceSync)
+            {
+                _nativeBalance = balance;
+            }
+
             return balance;
         }
 
@@ -101,13 +108,15 @@ namespace OnchainClob.Trading
             bool forceUpdate = true,
             CancellationToken cancellationToken = default)
         {
+            var contractAddress = symbolConfig.ContractAddress.ToLowerInvariant();
+
             if (!forceUpdate)
             {
                 return (
-                    _lobBalancesTokenX.TryGetValue(symbolConfig.ContractAddress.ToLowerInvariant(), out var balanceX)
+                    _lobBalancesTokenX.TryGetValue(contractAddress, out var balanceX)
                         ? balanceX
                         : BigInteger.Zero,
-                    _lobBalancesTokenY.TryGetValue(symbolConfig.ContractAddress.ToLowerInvariant(), out var balanceY)
+                    _lobBalancesTokenY.TryGetValue(contractAddress, out var balanceY)
                         ? balanceY
                         : BigInteger.Zero
                 );
@@ -119,9 +128,9 @@ namespace OnchainClob.Trading
             };
 
             var (hexResult, error) = await _rpc.CallAsync<string>(
-                to: symbolConfig.ContractAddress,
+                to: contractAddress,
                 from: _fromAddress,
-                input: getTraderBalance.CreateTransactionInput(symbolConfig.ContractAddress).Data,
+                input: getTraderBalance.CreateTransactionInput(contractAddress).Data,
                 cancellationToken: cancellationToken);
 
             if (error != null)
@@ -129,15 +138,13 @@ namespace OnchainClob.Trading
 
             var traderBalance = new GetTraderBalanceOutput().DecodeOutput(hexResult);
 
-            _lobBalancesTokenX[symbolConfig.ContractAddress.ToLowerInvariant()] =
-                traderBalance.TokenX * BigInteger.Pow(10, symbolConfig.ScallingFactorX);
-            _lobBalancesTokenY[symbolConfig.ContractAddress.ToLowerInvariant()] =
-                traderBalance.TokenY * BigInteger.Pow(10, symbolConfig.ScallingFactorY);
+            var newBalanceTokenX = traderBalance.TokenX * BigInteger.Pow(10, symbolConfig.ScallingFactorX);
+            var newBalanceTokenY = traderBalance.TokenY * BigInteger.Pow(10, symbolConfig.ScallingFactorY);
 
-            return (
-                _lobBalancesTokenX[symbolConfig.ContractAddress.ToLowerInvariant()],
-                _lobBalancesTokenY[symbolConfig.ContractAddress.ToLowerInvariant()]
-            );
+            _lobBalancesTokenX[contractAddress] = newBalanceTokenX;
+            _lobBalancesTokenY[contractAddress] = newBalanceTokenY;
+
+            return (newBalanceTokenX, newBalanceTokenY);
         }
 
         public async Task<Result<Balances>> GetAvailableBalancesAsync(
@@ -153,9 +160,16 @@ namespace OnchainClob.Trading
 
             if (!forceUpdate)
             {
+                var currentNativeBalance = BigInteger.Zero;
+
+                lock (_nativeBalanceSync)
+                {
+                    currentNativeBalance = _nativeBalance;
+                }
+
                 return new Balances
                 {
-                    NativeBalance = _nativeBalance,
+                    NativeBalance = currentNativeBalance,
                     TokenBalanceX = GetCachedTokenBalance(symbolConfig.TokenX.ContractAddress),
                     TokenBalanceY = GetCachedTokenBalance(symbolConfig.TokenY.ContractAddress),
                     LobBalanceX = _lobBalancesTokenX.TryGetValue(lobContractAddress.ToLowerInvariant(), out var balanceX)

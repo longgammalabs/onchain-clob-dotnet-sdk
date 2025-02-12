@@ -313,9 +313,11 @@ namespace OnchainClob.Trading
 
             foreach (var (batchGasLimit, batchRequests) in requests.SplitIntoSeveralBatches(_defaultGasLimits))
             {
-                var orderIds = batchRequests.Select(r => r.OrderId).ToList();
-                var prices = GetNormalizedPrices(batchRequests);
-                var qtys = GetNormalizedQtys(batchRequests);
+                var selectedRequests = batchRequests.ToList();
+
+                var orderIds = selectedRequests.Select(r => r.OrderId).ToList();
+                var prices = GetNormalizedPrices(selectedRequests);
+                var qtys = GetNormalizedQtys(selectedRequests);
                 var maxFee = maxFeePerGas * batchGasLimit ?? 0;
 
                 _logger?.LogDebug("[{@symbol}] Batching {@count} requests. " +
@@ -324,7 +326,7 @@ namespace OnchainClob.Trading
                     "Qtys: {@qtys}, " +
                     "Max fee: {@maxFee}",
                     Symbol,
-                    batchRequests.Count(),
+                    selectedRequests.Count,
                     string.Join(", ", orderIds),
                     string.Join(", ", prices),
                     string.Join(", ", qtys),
@@ -370,8 +372,34 @@ namespace OnchainClob.Trading
                             continue;
 
                         if (!CheckBalance(side, balances, previousLeaveAmount, inputAmount))
-                            return;
+                        {
+                            // skip order places for side
+                            for (var i = selectedRequests.Count - 1; i >= 0; i--)
+                            {
+                                if (selectedRequests[i].Qty > 0 &&
+                                    selectedRequests[i].OrderId.GetSideFromOrderId() == side)
+                                {
+                                    _logger?.LogDebug("[{@symbol}] Remove from batch {@side} order place with " +
+                                        "price {@price} and qty {@qty} due to insufficient token balance",
+                                        Symbol,
+                                        side,
+                                        prices[i].ToString(),
+                                        qtys[i].ToString());
+
+                                    selectedRequests.RemoveAt(i);
+                                    orderIds.RemoveAt(i);
+                                    qtys.RemoveAt(i);
+                                    prices.RemoveAt(i);
+                                }
+                            }
+                        }
                     }
+                }
+
+                if (selectedRequests.Count == 0)
+                {
+                    _logger?.LogDebug("[{@symbol}] All requests filtered after balance check", Symbol);
+                    return;
                 }
 
                 var expiration = DateTimeOffset.UtcNow.AddSeconds(DEFAULT_EXPIRED_SEC).ToUnixTimeSeconds();
@@ -413,7 +441,7 @@ namespace OnchainClob.Trading
                 }, cancellationToken);
 
                 var (pendingOrders, pendingCancellationRequests) = CreatePendingOrdersAndCancellationRequests(
-                    batchRequests,
+                    selectedRequests,
                     batchChangeOrderRequestId);
 
                 if (pendingOrders.Count > 0)
