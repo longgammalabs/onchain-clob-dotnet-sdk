@@ -13,12 +13,12 @@
         public string Direction { get; init; } = default!;
 
         /// <summary>
-        /// Price per token in the order, represented as a BigInteger string.
+        /// Price per token in the order
         /// </summary>
         public string Price { get; init; } = default!;
 
         /// <summary>
-        /// Token quantity filled by trade, represented as a BigInteger string.
+        /// Token quantity filled by trade
         /// </summary>
         public string Size { get; init; } = default!;
 

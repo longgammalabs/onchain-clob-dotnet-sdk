@@ -35,7 +35,7 @@ namespace OnchainClob.Trading
         private readonly ConcurrentDictionary<string, BigInteger> _tokenBalances = [];
         private readonly ConcurrentDictionary<string, BigInteger> _lobBalancesTokenX = [];
         private readonly ConcurrentDictionary<string, BigInteger> _lobBalancesTokenY = [];
-        private readonly Dictionary<string, ISymbolConfig> _symbolConfigs = [];
+        private readonly ConcurrentDictionary<string, ISymbolConfig> _symbolConfigs = [];
         private readonly object _nativeBalanceSync = new();
         private BigInteger _nativeBalance;
 
@@ -51,6 +51,11 @@ namespace OnchainClob.Trading
 
             foreach (var symbolConfig in symbols)
                 _symbolConfigs[symbolConfig.ContractAddress.ToLowerInvariant()] = symbolConfig;
+        }
+
+        public void AddSymbol(ISymbolConfig symbolConfig)
+        {
+            _symbolConfigs[symbolConfig.ContractAddress.ToLowerInvariant()] = symbolConfig;
         }
 
         public async Task<Result<BigInteger>> GetNativeBalanceAsync(

@@ -8,6 +8,7 @@ namespace OnchainClob.Trading.Abstract
         event EventHandler<List<Order>> OrdersChanged;
         event EventHandler<bool>? AvailabilityChanged;
 
+        bool IsAvailable { get; }
         List<Order> GetActiveOrders(bool pending = true);
         List<Order> GetPendingOrders();
         List<Order> GetFilledUnclaimedOrders();
