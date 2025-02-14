@@ -50,6 +50,10 @@ namespace OnchainClob.Client
 
                 return orders;
             }
+            catch (OperationCanceledException)
+            {
+                return new Error("Get markets task canceled");
+            }
             catch (HttpRequestException ex)
             {
                 return new Error(Errors.HTTP_REQUEST_ERROR, "Active orders request error", ex);
@@ -89,6 +93,10 @@ namespace OnchainClob.Client
                     return new Error(Errors.INVALID_RESPONSE, "Invalid markets response format");
 
                 return markets;
+            }
+            catch (OperationCanceledException)
+            {
+                return new Error("Get markets task canceled");
             }
             catch (HttpRequestException ex)
             {
