@@ -4,6 +4,7 @@ using OnchainClob.Client.Configuration;
 using OnchainClob.Client.Events;
 using OnchainClob.Client.Vault;
 using OnchainClob.Common;
+using OnchainClob.MarketData.PythHermes;
 using OnchainClob.Trading.Abstract;
 using OnchainClob.Trading.Requests;
 using Revelium.Evm.Rpc;

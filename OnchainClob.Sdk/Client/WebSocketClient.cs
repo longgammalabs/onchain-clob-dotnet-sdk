@@ -25,9 +25,19 @@ namespace OnchainClob.Client
         WebSocketClientOptions? options = null,
         ILogger<WebSocketClient>? logger = null) : IDisposable
     {
+        private const string CONNECTION_CHANNEL = "connection";
+        private const string SQUID_STATE_CHANNEL = "squidState";
+        private const string SUBSCRIPTION_CHANNEL = "subscriptionResponse";
+        private const string ORDERBOOK_CHANNEL = "orderbook";
+        private const string USER_ORDERS_CHANNEL = "userOrders";
+        private const string USER_FILLS_CHANNEL = "userFills";
+        private const string VAULT_TOTAL_VALUES_CHANNEL = "vaultTotalValues";
+        private const string TRADES_CHANNEL = "trades";
+
         public event EventHandler<OrderBookEventArgs>? OrderBookUpdated;
         public event EventHandler<UserOrdersEventArgs>? UserOrdersUpdated;
-        public event EventHandler<UserFillsEventArgs>? UserFillsUpdated;
+        public event EventHandler<UserFillsEventArgs>? UserFillsReceived;
+        public event EventHandler<TradesEventArgs>? TradeReceived;
         public event EventHandler<VaultTotalValuesEventArgs>? VaultTotalValuesUpdated;
         public event EventHandler? Connected;
         public event EventHandler? Disconnected;
@@ -103,7 +113,7 @@ namespace OnchainClob.Client
                 method = "subscribe",
                 subscription = new
                 {
-                    channel = "squidState"
+                    channel = SQUID_STATE_CHANNEL
                 }
             });
 
@@ -121,7 +131,7 @@ namespace OnchainClob.Client
                 method = "subscribe",
                 subscription = new
                 {
-                    channel = "orderbook",
+                    channel = ORDERBOOK_CHANNEL,
                     market = marketId
                 }
             });
@@ -140,8 +150,27 @@ namespace OnchainClob.Client
                 method = "subscribe",
                 subscription = new
                 {
-                    channel = "userOrders",
+                    channel = USER_ORDERS_CHANNEL,
                     user = userAddress,
+                    market = marketId
+                }
+            });
+
+            await _rateLimitControl.WaitAsync();
+
+            _ws!.Send(requestJson);
+        }
+
+        public async void SubscribeTradeChannel(string marketId)
+        {
+            _logger?.LogInformation("Subscribe to {@marketId} trade channel", marketId);
+
+            var requestJson = JsonSerializer.Serialize(new
+            {
+                method = "subscribe",
+                subscription = new
+                {
+                    channel = TRADES_CHANNEL,
                     market = marketId
                 }
             });
@@ -160,7 +189,7 @@ namespace OnchainClob.Client
                 method = "subscribe",
                 subscription = new
                 {
-                    channel = "userFills",
+                    channel = USER_FILLS_CHANNEL,
                     user = userAddress,
                     market = marketId
                 }
@@ -180,7 +209,7 @@ namespace OnchainClob.Client
                 method = "subscribe",
                 subscription = new
                 {
-                    channel = "vaultTotalValues",
+                    channel = VAULT_TOTAL_VALUES_CHANNEL,
                 }
             });
 
@@ -209,25 +238,28 @@ namespace OnchainClob.Client
 
                 switch (message!.Channel)
                 {
-                    case "connection":
+                    case CONNECTION_CHANNEL:
                         HandleConnectionMessage(message);
                         break;
-                    case "squidState":
+                    case SQUID_STATE_CHANNEL:
                         HandleStateMessage(message);
                         break;
-                    case "subscriptionResponse":
+                    case SUBSCRIPTION_CHANNEL:
                         HandleSubscriptionMessage(message);
                         break;
-                    case "orderbook":
+                    case ORDERBOOK_CHANNEL:
                         HandleOrderBookMessage(message);
                         break;
-                    case "userOrders":
+                    case USER_ORDERS_CHANNEL:
                         HandleUserOrdersMessage(message);
                         break;
-                    case "userFills":
+                    case USER_FILLS_CHANNEL:
                         HandleUserFillsMessage(message);
                         break;
-                    case "vaultTotalValues":
+                    case TRADES_CHANNEL:
+                        HandleTradesMessage(message);
+                        break;
+                    case VAULT_TOTAL_VALUES_CHANNEL:
                         HandleVaultTotalValuesMessage(message);
                         break;
                 }
@@ -302,10 +334,27 @@ namespace OnchainClob.Client
                 return;
             }
 
-            UserFillsUpdated?.Invoke(this, new UserFillsEventArgs
+            UserFillsReceived?.Invoke(this, new UserFillsEventArgs
             {
                 MarketId = message.Id,
                 UserFills = fills
+            });
+        }
+
+        private void HandleTradesMessage(ChannelMessage<JsonElement> message)
+        {
+            var trades = message.Data.Deserialize<Trade[]>();
+
+            if (trades == null)
+            {
+                _logger?.LogError("Trades array is null");
+                return;
+            }
+
+            TradeReceived?.Invoke(this, new TradesEventArgs
+            {
+                MarketId = message.Id,
+                Trades = trades
             });
         }
 

@@ -1,36 +1,39 @@
 using System.Numerics;
 using Incendium;
 
-public class Pyth(
-    string[] priceFeedIds,
-    long priceValidityPeriodSeconds,
-    PythHermesApi pythHermesApi,
-    BigInteger priceUpdateFeePerFeed)
+namespace OnchainClob.MarketData.PythHermes
 {
-    private readonly PythHermesApi _pythHermesApi = pythHermesApi;
-    private long _lastPriceUpdateTime;
-
-    public string[] PriceFeedIds { get; } = priceFeedIds;
-    public long PriceValidityPeriodSeconds { get; } = priceValidityPeriodSeconds;
-    public BigInteger PriceUpdateFeePerFeed { get; } = priceUpdateFeePerFeed;
-    public BigInteger PriceUpdateFee { get; } = priceUpdateFeePerFeed * priceFeedIds.Length;
-
-    public async Task<NullableResult<byte[][]>> GetPriceUpdateDataAsync()
+    public class Pyth(
+        string[] priceFeedIds,
+        long priceValidityPeriodSeconds,
+        PythHermesApi pythHermesApi,
+        BigInteger priceUpdateFeePerFeed)
     {
-        var currentTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        private readonly PythHermesApi _pythHermesApi = pythHermesApi;
+        private long _lastPriceUpdateTime;
 
-        if (currentTime - _lastPriceUpdateTime > PriceValidityPeriodSeconds)
+        public string[] PriceFeedIds { get; } = priceFeedIds;
+        public long PriceValidityPeriodSeconds { get; } = priceValidityPeriodSeconds;
+        public BigInteger PriceUpdateFeePerFeed { get; } = priceUpdateFeePerFeed;
+        public BigInteger PriceUpdateFee { get; } = priceUpdateFeePerFeed * priceFeedIds.Length;
+
+        public async Task<NullableResult<byte[][]>> GetPriceUpdateDataAsync()
         {
-            var (priceUpdateData, error) = await _pythHermesApi.GetPriceUpdateDataAsync(PriceFeedIds);
+            var currentTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
-            if (error != null)
-                return error;
+            if (currentTime - _lastPriceUpdateTime > PriceValidityPeriodSeconds)
+            {
+                var (priceUpdateData, error) = await _pythHermesApi.GetPriceUpdateDataAsync(PriceFeedIds);
 
-            _lastPriceUpdateTime = currentTime;
-            return priceUpdateData;
+                if (error != null)
+                    return error;
+
+                _lastPriceUpdateTime = currentTime;
+                return priceUpdateData;
+            }
+
+            // price update data is still valid
+            return NullableResult<byte[][]>.Success(null);
         }
-
-        // price update data is still valid
-        return NullableResult<byte[][]>.Success(null);
     }
 }

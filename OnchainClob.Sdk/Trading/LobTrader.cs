@@ -402,9 +402,11 @@ namespace OnchainClob.Trading
 
             foreach (var (batchGasLimit, batchRequests) in requests.SplitIntoSeveralBatches(_defaultGasLimits))
             {
-                var orderIds = batchRequests.Select(r => r.OrderId).ToList();
-                var prices = GetNormalizedPrices(batchRequests);
-                var qtys = GetNormalizedQtys(batchRequests);
+                var selectedRequests = batchRequests.ToList();
+
+                var orderIds = selectedRequests.Select(r => r.OrderId).ToList();
+                var prices = GetNormalizedPrices(selectedRequests);
+                var qtys = GetNormalizedQtys(selectedRequests);
                 var maxFee = maxFeePerGas * batchGasLimit ?? 0;
 
                 var (balances, balancesError) = await _balanceManager.GetAvailableBalancesAsync(
@@ -452,7 +454,29 @@ namespace OnchainClob.Trading
                         var isFromNative = _symbolConfig.UseNative && fromToken.IsNative;
 
                         if (!CheckBalance(side, balances, maxFee, previousLeaveAmount, inputAmount, isFromNative))
-                            return;
+                        {
+                            // skip order places for side
+                            for (var i = selectedRequests.Count - 1; i >= 0; i--)
+                            {
+                                if (selectedRequests[i].Qty > 0 &&
+                                    selectedRequests[i].OrderId.GetSideFromOrderId() == side)
+                                {
+                                    _logger?.LogDebug("[{@symbol}] Remove from batch {@side} order place with " +
+                                        "price {@price} and qty {@qty} due to insufficient token balance",
+                                        Symbol,
+                                        side,
+                                        prices[i].ToString(),
+                                        qtys[i].ToString());
+
+                                    selectedRequests.RemoveAt(i);
+                                    orderIds.RemoveAt(i);
+                                    qtys.RemoveAt(i);
+                                    prices.RemoveAt(i);
+                                }
+                            }
+
+                            inputAmount = 0;
+                        }
 
                         nativeTokenValue += isFromNative
                             ? inputAmount > balances.GetLobBalanceBySide(side) + previousLeaveAmount
@@ -486,7 +510,7 @@ namespace OnchainClob.Trading
                 }, cancellationToken);
 
                 var (pendingOrders, pendingCancellationRequests) = CreatePendingOrdersAndCancellationRequests(
-                    batchRequests,
+                    selectedRequests,
                     batchChangeOrderRequestId);
 
                 if (pendingOrders.Count > 0)
