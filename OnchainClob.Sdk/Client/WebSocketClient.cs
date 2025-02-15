@@ -343,6 +343,9 @@ namespace OnchainClob.Client
 
         private void HandleTradesMessage(ChannelMessage<JsonElement> message)
         {
+            if (message.IsSnapshot)
+                return; // skip trades snapshot
+
             var trades = message.Data.Deserialize<Trade[]>();
 
             if (trades == null)

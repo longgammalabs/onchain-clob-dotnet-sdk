@@ -168,8 +168,8 @@ namespace OnchainClob.Trading.Abstract
         }
 
         public abstract Task OrderSendAsync(
-            decimal price,
-            decimal qty,
+            BigInteger price,
+            BigInteger qty,
             Side side,
             bool marketOnly = false,
             bool postOnly = false,
@@ -183,8 +183,8 @@ namespace OnchainClob.Trading.Abstract
 
         public abstract Task<bool> OrderModifyAsync(
             ulong orderId,
-            decimal price,
-            decimal qty,
+            BigInteger price,
+            BigInteger qty,
             bool postOnly = false,
             bool transferTokens = false,
             CancellationToken cancellationToken = default);
@@ -194,6 +194,12 @@ namespace OnchainClob.Trading.Abstract
             bool postOnly = false,
             bool transferTokens = false,
             CancellationToken cancellationToken = default);
+
+        public void ForceSubscribeToChannels()
+        {
+            StartUserOrdersHandlerTask();
+            SubscribeToChannels();
+        }
 
         protected abstract void SubscribeToChannels();
 
@@ -351,8 +357,7 @@ namespace OnchainClob.Trading.Abstract
 
             _logger?.LogInformation("[{@symbol}] Client ready. Subscribe to channels", Symbol);
 
-            StartUserOrdersHandlerTask();
-            SubscribeToChannels();
+            ForceSubscribeToChannels();
         }
 
         private void WebSocketClient_UserOrdersUpdated(
@@ -455,7 +460,7 @@ namespace OnchainClob.Trading.Abstract
                         txId = order.TxnHash,
                         status = order.Status,
                         side = order.Side,
-                        price = order.Price
+                        price = order.Price.ToString()
                     });
             }
 
@@ -588,35 +593,10 @@ namespace OnchainClob.Trading.Abstract
             Side side)
         {
             return orderIds
-                .Where(orderId => orderId.GetSideFromOrderId() == side)
-                .Select((orderId, index) => qtys[index] > 0
+                .Select((orderId, index) => orderId.GetSideFromOrderId() == side && qtys[index] > 0
                     ? GetInputAmount(side, prices[index], qtys[index])
                     : BigInteger.Zero)
                 .Aggregate(BigInteger.Zero, (acc, value) => acc + value);
-        }
-
-        protected List<BigInteger> GetNormalizedQtys(IEnumerable<ITraderRequest> batchRequests)
-        {
-            return batchRequests
-                .Select(r =>
-                {
-                    if (!TryNormalizeQty(r.Qty, out var normalizedQty))
-                        throw new Exception($"Invalid qty {r.Qty}");
-                    return normalizedQty;
-                })
-                .ToList();
-        }
-
-        protected List<BigInteger> GetNormalizedPrices(IEnumerable<ITraderRequest> batchRequests)
-        {
-            return batchRequests
-                .Select(r =>
-                {
-                    if (!TryNormalizePrice(r.Price, out var normalizedPrice))
-                        throw new Exception($"Invalid significant digits count or size for price {r.Price}");
-                    return normalizedPrice;
-                })
-                .ToList();
         }
 
         protected BigInteger GetPreviousLeaveAmount(List<ulong> orderIds, Side side)
@@ -630,19 +610,8 @@ namespace OnchainClob.Trading.Abstract
                         : null;
                 })
                 .Where(order => order != null && order.Side == side)
-                .Select(order => GetPreviousLeaveAmount(order!, side))
+                .Select(order => GetInputAmount(side, order!.Price, order.LeaveQty))
                 .Aggregate(BigInteger.Zero, (acc, value) => acc + value);
-        }
-
-        protected BigInteger GetPreviousLeaveAmount(Order order, Side side)
-        {
-            if (!TryNormalizePrice(order.Price, out var normalizedPrice))
-                throw new Exception($"Invalid significant digits count or size for price {order.Price}");
-
-            if (!TryNormalizeQty(order.LeaveQty, out var normalizedQty))
-                throw new Exception($"Invalid leaveqty {order.LeaveQty}");
-
-            return GetInputAmount(side, normalizedPrice, normalizedQty);
         }
 
         protected (List<Order> pendingOrders, List<string> pendingCancellationRequests) CreatePendingOrdersAndCancellationRequests(

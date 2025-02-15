@@ -1,5 +1,6 @@
 using OnchainClob.Common;
 using OnchainClob.Trading.Requests;
+using System.Numerics;
 
 namespace OnchainClob.Trading.Abstract
 {
@@ -15,8 +16,8 @@ namespace OnchainClob.Trading.Abstract
         bool IsOrderCanceled(ulong orderId);
 
         Task OrderSendAsync(
-            decimal price,
-            decimal qty,
+            BigInteger price,
+            BigInteger qty,
             Side side,
             bool marketOnly = false,
             bool postOnly = false,
@@ -30,8 +31,8 @@ namespace OnchainClob.Trading.Abstract
 
         Task<bool> OrderModifyAsync(
             ulong orderId,
-            decimal price,
-            decimal qty,
+            BigInteger price,
+            BigInteger qty,
             bool postOnly = false,
             bool transferTokens = false,
             CancellationToken cancellationToken = default);

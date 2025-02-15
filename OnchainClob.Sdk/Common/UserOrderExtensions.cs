@@ -8,9 +8,9 @@ namespace OnchainClob.Common
     {
         public static Order ToOrder(this UserOrder o, string symbol, int pricePrecision)
         {
-            var qty = decimal.Parse(o.OrigSize);
-            var leaveQty = decimal.Parse(o.Size);
-            var claimedQty = decimal.Parse(o.Claimed);
+            var qty = BigInteger.Parse(o.OrigSize);
+            var leaveQty = BigInteger.Parse(o.Size);
+            var claimedQty = BigInteger.Parse(o.Claimed);
 
             var executedQty = qty - leaveQty;
             var isUnclaimed = claimedQty < executedQty;
@@ -37,7 +37,7 @@ namespace OnchainClob.Common
 
             return new Order(
                 OrderId: o.OrderId,
-                Price: BigInteger.Parse(o.Price).FromNormalizePrice(pricePrecision),
+                Price: BigInteger.Parse(o.Price),
                 Qty: qty,
                 LeaveQty: leaveQty,
                 ClaimedQty: claimedQty,

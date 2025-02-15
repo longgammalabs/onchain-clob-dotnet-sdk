@@ -39,8 +39,8 @@ namespace OnchainClob.Trading
         protected override string UserAddress => _lob.Executor.Signer.GetAddress();
 
         public override async Task OrderSendAsync(
-            decimal price,
-            decimal qty,
+            BigInteger price,
+            BigInteger qty,
             Side side,
             bool marketOnly = false,
             bool postOnly = false,
@@ -88,13 +88,7 @@ namespace OnchainClob.Trading
                 return;
             }
 
-            if (!TryNormalizePrice(price, out var normalizedPrice))
-                throw new Exception($"Invalid significant digits count or size for price {price}");
-
-            if (!TryNormalizeQty(qty, out var normalizedQty))
-                throw new Exception($"Invalid qty {qty}");
-
-            var inputAmount = GetInputAmount(side, normalizedPrice, normalizedQty);
+            var inputAmount = GetInputAmount(side, price, qty);
             var isFromNative = _symbolConfig.UseNative && fromToken.IsNative;
 
             if (!CheckBalance(side, balances, maxFee, BigInteger.Zero, inputAmount, isFromNative))
@@ -111,8 +105,8 @@ namespace OnchainClob.Trading
             var placeOrderRequestId = await _lob.PlaceOrderAsync(new PlaceOrderParams
             {
                 IsAsk = side == Side.Sell,
-                Price = normalizedPrice,
-                Quantity = normalizedQty,
+                Price = price,
+                Quantity = qty,
                 MaxCommission = UINT128_MAX_VALUE,
                 MarketOnly = marketOnly,
                 PostOnly = postOnly,
@@ -231,8 +225,8 @@ namespace OnchainClob.Trading
 
         public override async Task<bool> OrderModifyAsync(
             ulong orderId,
-            decimal price,
-            decimal qty,
+            BigInteger price,
+            BigInteger qty,
             bool postOnly = false,
             bool transferTokens = false,
             CancellationToken cancellationToken = default)
@@ -283,21 +277,15 @@ namespace OnchainClob.Trading
                 return false;
             }
 
-            if (!TryNormalizePrice(price, out var normalizedPrice))
-                throw new Exception($"Invalid significant digits count or size for price {price}");
-
-            if (!TryNormalizeQty(qty, out var normalizedQty))
-                throw new Exception($"Invalid qty {qty}");
-
             var nativeTokenValue = BigInteger.Zero;
 
             if (qty > 0)
             {
                 var previousLeaveAmount = orderId > 1 && _activeOrders.TryGetValue(orderId.ToString(), out var activeOrder)
-                    ? GetPreviousLeaveAmount(activeOrder, side)
+                    ? GetInputAmount(side, activeOrder.Price, activeOrder.LeaveQty) // GetPreviousLeaveAmount(activeOrder, side)
                     : BigInteger.Zero;
 
-                var inputAmount = GetInputAmount(side, normalizedPrice, normalizedQty);
+                var inputAmount = GetInputAmount(side, price, qty);
                 var isFromNative = _symbolConfig.UseNative && fromToken.IsNative;
 
                 if (!CheckBalance(side, balances, maxFee, previousLeaveAmount, inputAmount, isFromNative))
@@ -315,8 +303,8 @@ namespace OnchainClob.Trading
             var changeOrderRequestId = await _lob.ChangeOrderAsync(new ChangeOrderParams
             {
                 OldOrderId = orderId,
-                NewPrice = normalizedPrice,
-                NewQuantity = normalizedQty,
+                NewPrice = price,
+                NewQuantity = qty,
                 PostOnly = postOnly,
                 TransferTokens = transferTokens,
                 Expires = expiration,
@@ -405,8 +393,8 @@ namespace OnchainClob.Trading
                 var selectedRequests = batchRequests.ToList();
 
                 var orderIds = selectedRequests.Select(r => r.OrderId).ToList();
-                var prices = GetNormalizedPrices(selectedRequests);
-                var qtys = GetNormalizedQtys(selectedRequests);
+                var prices = selectedRequests.Select(r => r.Price).ToList();
+                var qtys = selectedRequests.Select(r => r.Qty).ToList();
                 var maxFee = maxFeePerGas * batchGasLimit ?? 0;
 
                 var (balances, balancesError) = await _balanceManager.GetAvailableBalancesAsync(
@@ -529,8 +517,8 @@ namespace OnchainClob.Trading
         }
 
         public async Task DepositAsync(
-            BigInteger amountTokenX,
-            BigInteger amountTokenY,
+            BigInteger normalizedAmountTokenX,
+            BigInteger normalizedAmountTokenY,
             CancellationToken cancellationToken = default)
         {
             // get native balance
@@ -571,8 +559,8 @@ namespace OnchainClob.Trading
 
             var _ = await _lob.DepositTokensAsync(new DepositTokensParams
             {
-                TokenXAmount = amountTokenX,
-                TokenYAmount = amountTokenY,
+                TokenXAmount = normalizedAmountTokenX,
+                TokenYAmount = normalizedAmountTokenY,
 
                 ContractAddress = _symbolConfig.ContractAddress.ToLowerInvariant(),
                 MaxFeePerGas = maxFeePerGas,

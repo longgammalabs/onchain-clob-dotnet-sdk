@@ -67,8 +67,8 @@ namespace OnchainClob.Trading
         }
 
         public override async Task OrderSendAsync(
-            decimal price,
-            decimal qty,
+            BigInteger price,
+            BigInteger qty,
             Side side,
             bool marketOnly = false,
             bool postOnly = false,
@@ -119,13 +119,7 @@ namespace OnchainClob.Trading
                 return;
             }
 
-            if (!TryNormalizePrice(price, out var normalizedPrice))
-                throw new Exception($"Invalid significant digits count or size for price {price}");
-
-            if (!TryNormalizeQty(qty, out var normalizedQty))
-                throw new Exception($"Invalid qty {qty}");
-
-            var inputAmount = GetInputAmount(side, normalizedPrice, normalizedQty);
+            var inputAmount = GetInputAmount(side, price, qty);
 
             if (!CheckBalance(side, balances, BigInteger.Zero, inputAmount))
                 return;
@@ -148,8 +142,8 @@ namespace OnchainClob.Trading
             {
                 LobId = VaultSymbolConfig.LobId,
                 IsAsk = side == Side.Sell,
-                Price = normalizedPrice,
-                Quantity = normalizedQty,
+                Price = price,
+                Quantity = qty,
                 MaxCommission = UINT128_MAX_VALUE,
                 MarketOnly = marketOnly,
                 PostOnly = postOnly,
@@ -268,8 +262,8 @@ namespace OnchainClob.Trading
 
         public override Task<bool> OrderModifyAsync(
             ulong orderId,
-            decimal price,
-            decimal qty,
+            BigInteger price,
+            BigInteger qty,
             bool postOnly = false,
             bool transferTokens = false,
             CancellationToken cancellationToken = default)
@@ -317,8 +311,8 @@ namespace OnchainClob.Trading
                 var selectedRequests = batchRequests.ToList();
 
                 var orderIds = selectedRequests.Select(r => r.OrderId).ToList();
-                var prices = GetNormalizedPrices(selectedRequests);
-                var qtys = GetNormalizedQtys(selectedRequests);
+                var prices = selectedRequests.Select(r => r.Price).ToList();
+                var qtys = selectedRequests.Select(r => r.Qty).ToList();
                 var maxFee = maxFeePerGas * batchGasLimit ?? 0;
 
                 _logger?.LogDebug("[{@symbol}] Batching {@count} requests. " +

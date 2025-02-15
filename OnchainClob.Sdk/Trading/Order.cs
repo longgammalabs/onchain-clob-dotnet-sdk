@@ -1,4 +1,5 @@
 ﻿using OnchainClob.Common;
+using System.Numerics;
 
 namespace OnchainClob.Trading
 {
@@ -25,10 +26,10 @@ namespace OnchainClob.Trading
 
     public record Order(
         string OrderId,
-        decimal Price,
-        decimal Qty,
-        decimal LeaveQty,
-        decimal ClaimedQty,
+        BigInteger Price,
+        BigInteger Qty,
+        BigInteger LeaveQty,
+        BigInteger ClaimedQty,
         Side Side,
         string Symbol,
         OrderStatus Status,
