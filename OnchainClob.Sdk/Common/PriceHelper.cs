@@ -31,11 +31,5 @@ namespace OnchainClob.Common
 
             return result;
         }
-
-        public static decimal FromNormalizePrice(this BigInteger price, int precision)
-        {
-            var multiplier = BigInteger.Pow(10, precision);
-            return price.Divide(multiplier);
-        }
     }
 }

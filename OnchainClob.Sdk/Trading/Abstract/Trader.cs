@@ -561,20 +561,20 @@ namespace OnchainClob.Trading.Abstract
             }
         }
 
-        protected bool TryNormalizePrice(decimal price, out BigInteger normalizedPrice)
-        {
-            normalizedPrice = price.ToNormalizePrice(_symbolConfig.PricePrecision, out var rest);
-            return rest == 0;
-        }
+        //protected bool TryNormalizePrice(decimal price, out BigInteger normalizedPrice)
+        //{
+        //    normalizedPrice = price.ToNormalizePrice(_symbolConfig.PricePrecision, out var rest);
+        //    return rest == 0;
+        //}
 
-        protected bool TryNormalizeQty(decimal qty, out BigInteger normalizedQty)
-        {
-            var multiplier = BigInteger.Pow(10, _symbolConfig.TokenX.Decimals - _symbolConfig.ScallingFactorX);
+        //protected bool TryNormalizeQty(decimal qty, out BigInteger normalizedQty)
+        //{
+        //    var multiplier = BigInteger.Pow(10, _symbolConfig.TokenX.Decimals - _symbolConfig.ScallingFactorX);
 
-            normalizedQty = qty.Multiply(multiplier);
+        //    normalizedQty = qty.Multiply(multiplier);
 
-            return normalizedQty.Divide(multiplier) == qty;
-        }
+        //    return normalizedQty.Divide(multiplier) == qty;
+        //}
 
         protected BigInteger GetInputAmount(
             Side side,
