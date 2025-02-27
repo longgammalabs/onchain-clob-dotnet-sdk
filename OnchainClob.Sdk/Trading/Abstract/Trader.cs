@@ -6,7 +6,6 @@ using OnchainClob.Client.Events;
 using OnchainClob.Common;
 using OnchainClob.Trading.Events;
 using OnchainClob.Trading.Requests;
-using Revelium.Evm.Common;
 using System.Collections.Concurrent;
 using System.Numerics;
 using System.Threading.Channels;
@@ -18,6 +17,7 @@ namespace OnchainClob.Trading.Abstract
     {
         private const string ALL_MARKETS = "allMarkets";
         private const int PENDING_CALLS_CHECK_INTERVAL_MS = 10;
+        private const int TOTAL_PENDING_CALLS_CHECK_INTERVAL_MS = 1000;
         private const int CANCELED_ORDERS_TTL_MS = 30 * 1000;
 
         public event EventHandler<List<Order>>? OrdersChanged;
@@ -25,8 +25,8 @@ namespace OnchainClob.Trading.Abstract
 
         protected readonly ISymbolConfig _symbolConfig;
         protected readonly ILogger<Trader>? _logger;
-        protected readonly WebSocketClient _webSocketClient;
-        private readonly RestApi _restApi;
+        protected readonly OnchainClobWsClient _webSocketClient;
+        private readonly OnchainClobRestApi _restApi;
         private readonly IExecutor _executor;
         private Channel<UserOrdersEventArgs>? _userOrdersChannel;
         private CancellationTokenSource? _userOrdersHandlerCts;
@@ -58,8 +58,8 @@ namespace OnchainClob.Trading.Abstract
 
         public Trader(
             ISymbolConfig symbolConfig,
-            WebSocketClient webSocketClient,
-            RestApi restApi,
+            OnchainClobWsClient webSocketClient,
+            OnchainClobRestApi restApi,
             IExecutor executor,
             ILogger<Trader>? logger = null)
         {
@@ -205,14 +205,25 @@ namespace OnchainClob.Trading.Abstract
 
         private async void Executor_TxMempooled(object sender, MempooledEventArgs e)
         {
+            int delay = 0;
+
+            while (!_pendingRequests.TryRemove(e.RequestId, out _))
+            {
+                await Task.Delay(PENDING_CALLS_CHECK_INTERVAL_MS);
+                delay += PENDING_CALLS_CHECK_INTERVAL_MS;
+
+                if (delay >= TOTAL_PENDING_CALLS_CHECK_INTERVAL_MS)
+                {
+                    _logger?.LogDebug("[{@symbol}] Can't find requrest with id {@id}", Symbol, e.RequestId);
+                    return;
+                }
+            }
+
             _logger?.LogInformation(
                 "[{@symbol}] tx with request id {@id} mempooled with tx id {@txId}",
                 Symbol,
                 e.RequestId,
                 e.TxId);
-
-            while (!_pendingRequests.TryRemove(e.RequestId, out _))
-                await Task.Delay(PENDING_CALLS_CHECK_INTERVAL_MS);
 
             try
             {
@@ -221,7 +232,8 @@ namespace OnchainClob.Trading.Abstract
                 if (!_pendingOrders.Remove(e.RequestId, out var pendingOrders))
                 {
                     _logger?.LogInformation(
-                        "[{@symbol}] pending orders for request id {@id} not found, probably it is a cancellation request",
+                        "[{@symbol}] pending orders for request id {@id} not found, probably it is " +
+                        "a cancellation request",
                         Symbol,
                         e.RequestId);
                 }
@@ -298,8 +310,25 @@ namespace OnchainClob.Trading.Abstract
 
         private async void Executor_Error(object sender, ErrorEventArgs e)
         {
+            int delay = 0;
+
             while (!_pendingRequests.TryRemove(e.RequestId, out _))
+            {
                 await Task.Delay(PENDING_CALLS_CHECK_INTERVAL_MS);
+                delay += PENDING_CALLS_CHECK_INTERVAL_MS;
+
+                if (delay >= TOTAL_PENDING_CALLS_CHECK_INTERVAL_MS)
+                {
+                    _logger?.LogDebug("[{@symbol}] Can't find requrest with id {@id}", Symbol, e.RequestId);
+                    return;
+                }
+            }
+
+            _logger?.LogError(
+                e.Error,
+                "[{symbol}] Request {request} failed",
+                _symbolConfig.Symbol,
+                e.RequestId);
 
             try
             {
@@ -310,7 +339,7 @@ namespace OnchainClob.Trading.Abstract
                 {
                     _logger?.LogDebug(
                         "[{@symbol}] {@count} pending orders removed for request with id {@id} " +
-                            "after tx sending fail",
+                        "after tx sending fail",
                         _symbolConfig.Symbol,
                         pendingOrders.Count,
                         e.RequestId);
@@ -560,21 +589,6 @@ namespace OnchainClob.Trading.Abstract
                 _ordersSync.Release();
             }
         }
-
-        //protected bool TryNormalizePrice(decimal price, out BigInteger normalizedPrice)
-        //{
-        //    normalizedPrice = price.ToNormalizePrice(_symbolConfig.PricePrecision, out var rest);
-        //    return rest == 0;
-        //}
-
-        //protected bool TryNormalizeQty(decimal qty, out BigInteger normalizedQty)
-        //{
-        //    var multiplier = BigInteger.Pow(10, _symbolConfig.TokenX.Decimals - _symbolConfig.ScallingFactorX);
-
-        //    normalizedQty = qty.Multiply(multiplier);
-
-        //    return normalizedQty.Divide(multiplier) == qty;
-        //}
 
         protected BigInteger GetInputAmount(
             Side side,

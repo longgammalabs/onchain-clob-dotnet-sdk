@@ -20,10 +20,10 @@ namespace OnchainClob.Client
         public int? ErrorReconnectionTimeoutInSec { get; init; }
     }
 
-    public class WebSocketClient(
+    public class OnchainClobWsClient(
         string url,
         WebSocketClientOptions? options = null,
-        ILogger<WebSocketClient>? logger = null) : IDisposable
+        ILogger<OnchainClobWsClient>? logger = null) : IDisposable
     {
         private const string CONNECTION_CHANNEL = "connection";
         private const string SQUID_STATE_CHANNEL = "squidState";
@@ -47,7 +47,7 @@ namespace OnchainClob.Client
 
         private readonly string _url = url;
         private readonly WebSocketClientOptions? _options = options;
-        private readonly ILogger<WebSocketClient>? _logger = logger;
+        private readonly ILogger<OnchainClobWsClient>? _logger = logger;
         private readonly RateLimitControl _rateLimitControl = new(500);
         private WebsocketClient? _ws;
         private bool _disposed;

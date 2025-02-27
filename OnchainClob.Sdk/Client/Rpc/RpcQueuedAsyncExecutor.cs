@@ -102,7 +102,6 @@ namespace OnchainClob.Client.Rpc
         public Task<bool> TryCancelRequestAsync(
             string requestId,
             CancellationToken cancellationToken = default)
-
         {
             return _sequencer.TryCancelAsync(requestId, cancellationToken);
         }

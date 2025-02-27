@@ -12,8 +12,8 @@ namespace OnchainClob.Trading
 {
     public class LobTrader(
         ISymbolConfig symbolConfig,
-        WebSocketClient webSocketClient,
-        RestApi restApi,
+        OnchainClobWsClient webSocketClient,
+        OnchainClobRestApi restApi,
         Lob lob,
         BalanceManager balanceManager,
         RpcClient rpc,

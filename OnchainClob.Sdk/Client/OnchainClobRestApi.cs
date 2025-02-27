@@ -5,8 +5,11 @@ using System.Text.Json;
 
 namespace OnchainClob.Client
 {
-    public class RestApi(string url, HttpClient? httpClient = null)
+    public class OnchainClobRestApi(string url, HttpClient? httpClient = null)
     {
+        public const int HTTP_REQUEST_ERROR = 1;
+        public const int INVALID_RESPONSE = 2;
+
         private readonly string _url = url ?? throw new ArgumentNullException(nameof(url));
         private readonly HttpClient _httpClient = httpClient ?? new HttpClient();
 
@@ -41,12 +44,12 @@ namespace OnchainClob.Client
                     return new Error((int)response.StatusCode, responseContent);
 
                 if (responseContent == null)
-                    return new Error(Errors.INVALID_RESPONSE, "Null active orders response received");
+                    return new Error(INVALID_RESPONSE, "Null active orders response received");
 
                 var orders = JsonSerializer.Deserialize<List<UserOrder>>(responseContent);
 
                 if (orders == null)
-                    return new Error(Errors.INVALID_RESPONSE, "Invalid active orders response format");
+                    return new Error(INVALID_RESPONSE, "Invalid active orders response format");
 
                 return orders;
             }
@@ -56,11 +59,11 @@ namespace OnchainClob.Client
             }
             catch (HttpRequestException ex)
             {
-                return new Error(Errors.HTTP_REQUEST_ERROR, "Active orders request error", ex);
+                return new Error(HTTP_REQUEST_ERROR, "Active orders request error", ex);
             }
             catch (Exception ex)
             {
-                return new Error(Errors.INVALID_RESPONSE, "Invalid active orders response format", ex);
+                return new Error(INVALID_RESPONSE, "Invalid active orders response format", ex);
             }
         }
 
@@ -85,12 +88,12 @@ namespace OnchainClob.Client
                     return new Error((int)response.StatusCode, responseContent);
 
                 if (responseContent == null)
-                    return new Error(Errors.INVALID_RESPONSE, "Null markets response received");
+                    return new Error(INVALID_RESPONSE, "Null markets response received");
 
                 var markets = JsonSerializer.Deserialize<List<Market>>(responseContent);
 
                 if (markets == null)
-                    return new Error(Errors.INVALID_RESPONSE, "Invalid markets response format");
+                    return new Error(INVALID_RESPONSE, "Invalid markets response format");
 
                 return markets;
             }
@@ -100,11 +103,11 @@ namespace OnchainClob.Client
             }
             catch (HttpRequestException ex)
             {
-                return new Error(Errors.HTTP_REQUEST_ERROR, "Markets request error", ex);
+                return new Error(HTTP_REQUEST_ERROR, "Markets request error", ex);
             }
             catch (Exception ex)
             {
-                return new Error(Errors.INVALID_RESPONSE, "Invalid markets response format", ex);
+                return new Error(INVALID_RESPONSE, "Invalid markets response format", ex);
             }
         }
     }
