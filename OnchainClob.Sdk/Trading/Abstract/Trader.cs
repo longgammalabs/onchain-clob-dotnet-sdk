@@ -16,8 +16,6 @@ namespace OnchainClob.Trading.Abstract
     public abstract class Trader : ITrader
     {
         private const string ALL_MARKETS = "allMarkets";
-        private const int PENDING_CALLS_CHECK_INTERVAL_MS = 10;
-        private const int TOTAL_PENDING_CALLS_CHECK_INTERVAL_MS = 1000;
         private const int CANCELED_ORDERS_TTL_MS = 30 * 1000;
 
         public event EventHandler<List<Order>>? OrdersChanged;
@@ -27,7 +25,7 @@ namespace OnchainClob.Trading.Abstract
         protected readonly ILogger<Trader>? _logger;
         protected readonly OnchainClobWsClient _webSocketClient;
         private readonly OnchainClobRestApi _restApi;
-        private readonly IExecutor _executor;
+        private readonly IAsyncExecutor _executor;
         private Channel<UserOrdersEventArgs>? _userOrdersChannel;
         private CancellationTokenSource? _userOrdersHandlerCts;
 
@@ -35,7 +33,7 @@ namespace OnchainClob.Trading.Abstract
         protected readonly ConcurrentDictionary<ulong, DateTimeOffset> _canceledOrders;
         protected readonly ConcurrentDictionary<string, List<string>> _pendingCancellationRequests;
         protected readonly ConcurrentDictionary<string, List<Order>> _pendingOrders;
-        protected readonly ConcurrentDictionary<string, bool> _pendingRequests;
+        protected readonly ConcurrentDictionary<string, TaskCompletionSource<bool>> _pendingRequests;
         protected readonly Dictionary<string, Order> _activeOrders;
         protected readonly Dictionary<string, Order> _filledUnclaimedOrders;
 
@@ -60,7 +58,7 @@ namespace OnchainClob.Trading.Abstract
             ISymbolConfig symbolConfig,
             OnchainClobWsClient webSocketClient,
             OnchainClobRestApi restApi,
-            IExecutor executor,
+            IAsyncExecutor executor,
             ILogger<Trader>? logger = null)
         {
             _symbolConfig = symbolConfig ?? throw new ArgumentNullException(nameof(symbolConfig));
@@ -150,7 +148,7 @@ namespace OnchainClob.Trading.Abstract
                     return true;
 
                 _logger?.LogDebug(
-                    "[{@symbol}] {@count} pending orders removed for request id {@id} before tx sending",
+                    "[{symbol}] Remove {count} pending orders for request id {id} before tx sending",
                     Symbol,
                     pendingOrders.Count,
                     placeOrderRequestId);
@@ -205,22 +203,16 @@ namespace OnchainClob.Trading.Abstract
 
         private async void Executor_TxMempooled(object sender, MempooledEventArgs e)
         {
-            int delay = 0;
+            if (!_pendingRequests.TryGetValue(e.RequestId, out var tcs))
+                return; // skip unknown pending requests
 
-            while (!_pendingRequests.TryRemove(e.RequestId, out _))
-            {
-                await Task.Delay(PENDING_CALLS_CHECK_INTERVAL_MS);
-                delay += PENDING_CALLS_CHECK_INTERVAL_MS;
+            // wait for pending request initialization
+            await tcs.Task;
 
-                if (delay >= TOTAL_PENDING_CALLS_CHECK_INTERVAL_MS)
-                {
-                    _logger?.LogDebug("[{@symbol}] Can't find requrest with id {@id}", Symbol, e.RequestId);
-                    return;
-                }
-            }
+            _pendingRequests.Remove(e.RequestId, out _);
 
             _logger?.LogInformation(
-                "[{@symbol}] tx with request id {@id} mempooled with tx id {@txId}",
+                "[{symbol}] Tx with request id {id} mempooled with tx id {txId}",
                 Symbol,
                 e.RequestId,
                 e.TxId);
@@ -232,19 +224,12 @@ namespace OnchainClob.Trading.Abstract
                 if (!_pendingOrders.Remove(e.RequestId, out var pendingOrders))
                 {
                     _logger?.LogInformation(
-                        "[{@symbol}] pending orders for request id {@id} not found, probably it is " +
-                        "a cancellation request",
+                        "[{symbol}] Pending orders for request id {id} not found, probably it is a cancellations only request",
                         Symbol,
                         e.RequestId);
                 }
                 else
                 {
-                    _logger?.LogDebug(
-                        "[{@symbol}] {@count} pending orders removed for request id {@id}",
-                        Symbol,
-                        pendingOrders.Count,
-                        e.RequestId);
-
                     pendingOrders = [.. pendingOrders
                         .Select(o => o with
                         {
@@ -256,9 +241,11 @@ namespace OnchainClob.Trading.Abstract
                     _pendingOrders.TryAdd(e.TxId, pendingOrders);
 
                     _logger?.LogDebug(
-                        "[{@symbol}] Add pending orders for txId {@txId}",
+                        "[{symbol}] Update {count} pending orders for tx id {txId} and request id {requestId}",
                         Symbol,
-                        e.TxId);
+                        pendingOrders.Count,
+                        e.TxId,
+                        e.RequestId);
                 }
             }
             finally
@@ -271,7 +258,7 @@ namespace OnchainClob.Trading.Abstract
                 if (!_pendingCancellationRequests.TryAdd(e.TxId, orderIds))
                 {
                     _logger?.LogError(
-                        "[{@symbol}] Cannot add cancellation request with txId {id}",
+                        "[{symbol}] Cannot add cancellation request with tx id {id}",
                         _symbolConfig.Symbol,
                         e.TxId);
                 }
@@ -288,7 +275,7 @@ namespace OnchainClob.Trading.Abstract
                 if (_pendingOrders.TryRemove(e.Receipt.TransactionHash, out var pendingOrders))
                 {
                     _logger?.LogDebug(
-                        "[{@symbol}] {@count} pending orders removed for txId {@txId} after tx failing",
+                        "[{symbol}] Remove {count} pending orders for tx id {txId} after tx failing",
                         _symbolConfig.Symbol,
                         pendingOrders.Count,
                         e.Receipt.TransactionHash);
@@ -310,19 +297,13 @@ namespace OnchainClob.Trading.Abstract
 
         private async void Executor_Error(object sender, ErrorEventArgs e)
         {
-            int delay = 0;
+            if (!_pendingRequests.TryGetValue(e.RequestId, out var tcs))
+                return; // skip unknown pending requests
 
-            while (!_pendingRequests.TryRemove(e.RequestId, out _))
-            {
-                await Task.Delay(PENDING_CALLS_CHECK_INTERVAL_MS);
-                delay += PENDING_CALLS_CHECK_INTERVAL_MS;
+            // wait for pending request initialization
+            await tcs.Task;
 
-                if (delay >= TOTAL_PENDING_CALLS_CHECK_INTERVAL_MS)
-                {
-                    _logger?.LogDebug("[{@symbol}] Can't find requrest with id {@id}", Symbol, e.RequestId);
-                    return;
-                }
-            }
+            _pendingRequests.Remove(e.RequestId, out _);
 
             _logger?.LogError(
                 e.Error,
@@ -338,8 +319,7 @@ namespace OnchainClob.Trading.Abstract
                 if (_pendingOrders.Remove(e.RequestId, out var pendingOrders))
                 {
                     _logger?.LogDebug(
-                        "[{@symbol}] {@count} pending orders removed for request with id {@id} " +
-                        "after tx sending fail",
+                        "[{symbol}] Remove {count} pending orders for request with id {id} after tx sending fail",
                         _symbolConfig.Symbol,
                         pendingOrders.Count,
                         e.RequestId);
@@ -373,7 +353,7 @@ namespace OnchainClob.Trading.Abstract
         {
             if (status == StateStatus.Sync)
             {
-                _logger?.LogInformation("[{@symbol}] Client syncing...", Symbol);
+                _logger?.LogInformation("[{symbol}] Client syncing...", Symbol);
 
                 IsAvailable = false;
 
@@ -384,7 +364,7 @@ namespace OnchainClob.Trading.Abstract
                 return;
             }
 
-            _logger?.LogInformation("[{@symbol}] Client ready. Subscribe to channels", Symbol);
+            _logger?.LogInformation("[{symbol}] Client ready. Subscribe to channels", Symbol);
 
             ForceSubscribeToChannels();
         }
@@ -396,7 +376,7 @@ namespace OnchainClob.Trading.Abstract
             if (_userOrdersChannel == null)
             {
                 _logger?.LogError(
-                    "[{@symbol}] User orders channel not initialized",
+                    "[{symbol}] User orders channel not initialized",
                     _symbolConfig.Symbol);
 
                 return;
@@ -411,7 +391,7 @@ namespace OnchainClob.Trading.Abstract
 
             if (!_userOrdersChannel.Writer.TryWrite(args))
             {
-                _logger?.LogError("[{@symbol}] Can't write user orders events to channel", Symbol);
+                _logger?.LogError("[{symbol}] Can't write user orders events to channel", Symbol);
             }
         }
 
@@ -464,7 +444,7 @@ namespace OnchainClob.Trading.Abstract
             }
             catch (Exception e)
             {
-                _logger?.LogError(e, "[{@symbol}] User orders events handler error", Symbol);
+                _logger?.LogError(e, "[{symbol}] User orders events handler error", Symbol);
             }
         }
 
@@ -481,7 +461,7 @@ namespace OnchainClob.Trading.Abstract
 
             foreach (var order in orders)
             {
-                _logger?.LogDebug("[{@symbol}] Receive order update:\n{@order}",
+                _logger?.LogDebug("[{symbol}] Receive order update:\n{@order}",
                     _symbolConfig.Symbol,
                     new
                     {
@@ -508,7 +488,7 @@ namespace OnchainClob.Trading.Abstract
                 {
                     _logger?.LogError(
                         error,
-                        "[{@symbol}] Get active orders snapshot error",
+                        "[{symbol}] Get active orders snapshot error",
                         _symbolConfig.Symbol);
 
                     return;
@@ -517,7 +497,7 @@ namespace OnchainClob.Trading.Abstract
                 if (activeOrders == null)
                 {
                     _logger?.LogError(
-                        "[{@symbol}] Get active orders snapshot error",
+                        "[{symbol}] Get active orders snapshot error",
                         _symbolConfig.Symbol);
 
                     return;
@@ -577,7 +557,7 @@ namespace OnchainClob.Trading.Abstract
                     if (_pendingOrders.Remove(order.TxnHash!, out var pendingOrders))
                     {
                         _logger?.LogInformation(
-                            "[{@symbol}] {@count} pending orders removed for txId: {@txId}",
+                            "[{symbol}] Remove {count} pending orders for tx id {txId}",
                             _symbolConfig.Symbol,
                             pendingOrders.Count,
                             order.TxnHash);

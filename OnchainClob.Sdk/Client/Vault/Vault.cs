@@ -46,11 +46,11 @@ namespace OnchainClob.Client.Vault
         public byte[][] PriceUpdateData { get; init; } = default!;
     }
 
-    public class Vault(IExecutor executor)
+    public class Vault(IAsyncExecutor executor)
     {
-        public IExecutor Executor { get; } = executor ?? throw new ArgumentNullException(nameof(executor));
+        public IAsyncExecutor Executor { get; } = executor ?? throw new ArgumentNullException(nameof(executor));
 
-        public async Task<string> ApproveAsync(
+        public Task ApproveAsync(
             ApproveParams @params,
             CancellationToken cancellationToken = default)
         {
@@ -73,17 +73,18 @@ namespace OnchainClob.Client.Vault
 
             var requestParams = new TransactionRequestParams
             {
+                RequestId = @params.RequestId,
                 Tx = TxInputToTxRequest(txInput),
                 EstimateGas = @params.EstimateGas,
                 EstimateGasReserveInPercent = @params.EstimateGasReserveInPercent,
             };
 
-            return await Executor.ExecuteAsync(
+            return Executor.ExecuteAsync(
                 requestParams,
                 cancellationToken);
         }
 
-        public async Task<string> PlaceOrderAsync(
+        public Task PlaceOrderAsync(
             PlaceOrderParams @params,
             CancellationToken cancellationToken = default)
         {
@@ -113,17 +114,18 @@ namespace OnchainClob.Client.Vault
 
             var requestParams = new TransactionRequestParams
             {
+                RequestId = @params.RequestId,
                 Tx = TxInputToTxRequest(txInput),
                 EstimateGas = @params.EstimateGas,
                 EstimateGasReserveInPercent = @params.EstimateGasReserveInPercent,
             };
 
-            return await Executor.ExecuteAsync(
+            return Executor.ExecuteAsync(
                 requestParams,
                 cancellationToken);
         }
 
-        public async Task<string> ClaimOrderAsync(
+        public Task ClaimOrderAsync(
             ClaimOrderParams @params,
             CancellationToken cancellationToken = default)
         {
@@ -147,17 +149,18 @@ namespace OnchainClob.Client.Vault
 
             var requestParams = new TransactionRequestParams
             {
+                RequestId = @params.RequestId,
                 Tx = TxInputToTxRequest(txInput),
                 EstimateGas = @params.EstimateGas,
                 EstimateGasReserveInPercent = @params.EstimateGasReserveInPercent,
             };
 
-            return await Executor.ExecuteAsync(
+            return Executor.ExecuteAsync(
                 requestParams,
                 cancellationToken);
         }
 
-        public async Task<string> BatchChangeOrderAsync(
+        public Task BatchChangeOrderAsync(
             BatchChangeOrderParams @params,
             CancellationToken cancellationToken = default)
         {
@@ -187,12 +190,13 @@ namespace OnchainClob.Client.Vault
 
             var requestParams = new TransactionRequestParams
             {
+                RequestId = @params.RequestId,
                 Tx = TxInputToTxRequest(txInput),
                 EstimateGas = @params.EstimateGas,
                 EstimateGasReserveInPercent = @params.EstimateGasReserveInPercent,
             };
 
-            return await Executor.ExecuteAsync(
+            return Executor.ExecuteAsync(
                 requestParams,
                 cancellationToken);
         }

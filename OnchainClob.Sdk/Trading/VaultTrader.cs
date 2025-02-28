@@ -87,7 +87,7 @@ namespace OnchainClob.Trading
 
             if (balancesError != null)
             {
-                _logger?.LogError(balancesError, "[{@symbol}] Get available balances error", Symbol);
+                _logger?.LogError(balancesError, "[{symbol}] Get available balances error", Symbol);
                 return;
             }
 
@@ -97,7 +97,7 @@ namespace OnchainClob.Trading
 
             if (maxPriorityFeeError != null)
             {
-                _logger?.LogError(maxPriorityFeeError, "[{@symbol}] Get max prirority fee per gas error", Symbol);
+                _logger?.LogError(maxPriorityFeeError, "[{symbol}] Get max prirority fee per gas error", Symbol);
                 return;
             }
 
@@ -107,10 +107,10 @@ namespace OnchainClob.Trading
             if (balances.NativeBalance < maxFee + _pyth.PriceUpdateFee)
             {
                 _logger?.LogError(
-                    "[{@symbol}] Insufficient native token balance for PlaceOrder fee. " +
-                        "Native balance: {@nativeBalance}. " +
-                        "Max fee: {@fee}. " +
-                        "Price update fee: {@priceUpdateFee}.",
+                    "[{symbol}] Insufficient native token balance for PlaceOrder fee. " +
+                        "Native balance: {nativeBalance}. " +
+                        "Max fee: {fee}. " +
+                        "Price update fee: {priceUpdateFee}.",
                     Symbol,
                     balances.NativeBalance.ToString(),
                     maxFee.ToString(),
@@ -132,14 +132,19 @@ namespace OnchainClob.Trading
             {
                 _logger?.LogWarning(
                     priceUpdateDataError,
-                    "[{@symbol}] Get price update data error",
+                    "[{symbol}] Get price update data error",
                     Symbol);
             }
 
             var priceUpdateFee = priceUpdateData != null ? _pyth.PriceUpdateFee : 0;
 
-            var placeOrderRequestId = await _vault.PlaceOrderAsync(new PlaceOrderParams
+            var requestId = Guid.NewGuid().ToString();
+            _pendingRequests.TryAdd(requestId, new TaskCompletionSource<bool>());
+
+            await _vault.PlaceOrderAsync(new PlaceOrderParams
             {
+                RequestId = requestId,
+
                 LobId = VaultSymbolConfig.LobId,
                 IsAsk = side == Side.Sell,
                 Price = price,
@@ -162,7 +167,7 @@ namespace OnchainClob.Trading
             }, cancellationToken);
 
             var pendingOrder = new Order(
-                OrderId: placeOrderRequestId,
+                OrderId: requestId,
                 Price: price,
                 Qty: qty,
                 LeaveQty: qty,
@@ -175,14 +180,14 @@ namespace OnchainClob.Trading
                 LastChanged: DateTimeOffset.UtcNow,
                 TxnHash: null);
 
-            _pendingOrders.TryAdd(placeOrderRequestId, [pendingOrder]);
-            _pendingRequests.TryAdd(placeOrderRequestId, true);
+            _pendingOrders.TryAdd(requestId, [pendingOrder]);
+            _pendingRequests[requestId].SetResult(true);
 
             _logger?.LogDebug(
-                "[{@symbol}] Add {@side} pending order request with id {@id}",
+                "[{symbol}] Add {side} pending order request with id {id}",
                 Symbol,
                 side,
-                placeOrderRequestId);
+                requestId);
         }
 
         public override async Task<bool> OrderCancelAsync(
@@ -201,7 +206,7 @@ namespace OnchainClob.Trading
 
             if (balanceError != null)
             {
-                _logger?.LogError(balanceError, "[{@symbol}] Get native balance error", Symbol);
+                _logger?.LogError(balanceError, "[{symbol}] Get native balance error", Symbol);
                 return false;
             }
 
@@ -211,7 +216,7 @@ namespace OnchainClob.Trading
 
             if (maxPriorityFeeError != null)
             {
-                _logger?.LogError(maxPriorityFeeError, "[{@symbol}] Get max prirority fee per gas error", Symbol);
+                _logger?.LogError(maxPriorityFeeError, "[{symbol}] Get max prirority fee per gas error", Symbol);
                 return false;
             }
 
@@ -221,9 +226,9 @@ namespace OnchainClob.Trading
             if (balance < maxFee)
             {
                 _logger?.LogError(
-                    "[{@symbol}] Insufficient native token balance for ClaimOrder fee. " +
-                        "Balance: {@balance}. " +
-                        "Max fee: {@fee}.",
+                    "[{symbol}] Insufficient native token balance for ClaimOrder fee. " +
+                        "Balance: {balance}. " +
+                        "Max fee: {fee}.",
                     Symbol,
                     balance.ToString(),
                     maxFee.ToString());
@@ -232,8 +237,13 @@ namespace OnchainClob.Trading
 
             var expiration = DateTimeOffset.UtcNow.AddSeconds(DEFAULT_EXPIRED_SEC).ToUnixTimeSeconds();
 
-            var claimOrderRequestId = await _vault.ClaimOrderAsync(new ClaimOrderParams
+            var requestId = Guid.NewGuid().ToString();
+            _pendingRequests.TryAdd(requestId, new TaskCompletionSource<bool>());
+
+            await _vault.ClaimOrderAsync(new ClaimOrderParams
             {
+                RequestId = requestId,
+
                 LobId = VaultSymbolConfig.LobId,
                 OrderId = orderId,
                 Expires = expiration,
@@ -248,13 +258,13 @@ namespace OnchainClob.Trading
                 ChainId = _rpc.ChainId
             }, cancellationToken);
 
-            _pendingCancellationRequests.TryAdd(claimOrderRequestId, [orderId.ToString()]);
-            _pendingRequests.TryAdd(claimOrderRequestId, true);
+            _pendingCancellationRequests.TryAdd(requestId, [orderId.ToString()]);
+            _pendingRequests[requestId].SetResult(true);
 
             _logger?.LogDebug(
-                "[{@symbol}] Add cancellation request with id {@id} and orderId {@orderId}",
+                "[{symbol}] Add cancellation request with id {id} and orderId {orderId}",
                 Symbol,
-                claimOrderRequestId,
+                requestId,
                 orderId);
 
             return true;
@@ -300,7 +310,7 @@ namespace OnchainClob.Trading
 
             if (maxPriorityFeeError != null)
             {
-                _logger?.LogError(maxPriorityFeeError, "[{@symbol}] Get max prirority fee per gas error", Symbol);
+                _logger?.LogError(maxPriorityFeeError, "[{symbol}] Get max prirority fee per gas error", Symbol);
                 return;
             }
 
@@ -315,11 +325,11 @@ namespace OnchainClob.Trading
                 var qtys = selectedRequests.Select(r => r.Qty).ToList();
                 var maxFee = maxFeePerGas * batchGasLimit ?? 0;
 
-                _logger?.LogDebug("[{@symbol}] Batching {@count} requests. " +
-                    "Order ids: {@orderIds}, " +
-                    "Prices: {@prices}, " +
-                    "Qtys: {@qtys}, " +
-                    "Max fee: {@maxFee}",
+                _logger?.LogDebug("[{symbol}] Batching {count} requests. " +
+                    "Order ids: {orderIds}, " +
+                    "Prices: {prices}, " +
+                    "Qtys: {qtys}, " +
+                    "Max fee: {maxFee}",
                     Symbol,
                     selectedRequests.Count,
                     string.Join(", ", orderIds),
@@ -335,17 +345,17 @@ namespace OnchainClob.Trading
 
                 if (balancesError != null)
                 {
-                    _logger?.LogError(balancesError, "[{@symbol}] Get available balances error", Symbol);
+                    _logger?.LogError(balancesError, "[{symbol}] Get available balances error", Symbol);
                     return;
                 }
 
                 if (balances.NativeBalance < maxFee + _pyth.PriceUpdateFee)
                 {
                     _logger?.LogError(
-                        "[{@symbol}] Insufficient native token balance for BatchChangeOrder fee. " +
-                            "Native balance: {@balance}. " +
-                            "Max fee: {@fee}. " +
-                            "Price update fee: {@priceUpdateFee}.",
+                        "[{symbol}] Insufficient native token balance for BatchChangeOrder fee. " +
+                            "Native balance: {balance}. " +
+                            "Max fee: {fee}. " +
+                            "Price update fee: {priceUpdateFee}.",
                         Symbol,
                         balances.NativeBalance.ToString(),
                         maxFee.ToString(),
@@ -374,8 +384,8 @@ namespace OnchainClob.Trading
                                 if (selectedRequests[i].Qty > 0 &&
                                     selectedRequests[i].OrderId.GetSideFromOrderId() == side)
                                 {
-                                    _logger?.LogDebug("[{@symbol}] Remove from batch {@side} order place with " +
-                                        "price {@price} and qty {@qty} due to insufficient token balance",
+                                    _logger?.LogDebug("[{symbol}] Remove from batch {side} order place with " +
+                                        "price {price} and qty {qty} due to insufficient token balance",
                                         Symbol,
                                         side,
                                         prices[i].ToString(),
@@ -393,7 +403,7 @@ namespace OnchainClob.Trading
 
                 if (selectedRequests.Count == 0)
                 {
-                    _logger?.LogDebug("[{@symbol}] All requests filtered after balance check", Symbol);
+                    _logger?.LogDebug("[{symbol}] All requests filtered after balance check", Symbol);
                     return;
                 }
 
@@ -405,14 +415,19 @@ namespace OnchainClob.Trading
                 {
                     _logger?.LogWarning(
                         priceUpdateDataError,
-                        "[{@symbol}] Get price update data error",
+                        "[{symbol}] Get price update data error",
                         Symbol);
                 }
 
                 var priceUpdateFee = priceUpdateData != null ? _pyth.PriceUpdateFee : 0;
 
-                var batchChangeOrderRequestId = await _vault.BatchChangeOrderAsync(new BatchChangeOrderParams
+                var requestId = Guid.NewGuid().ToString();
+                _pendingRequests.TryAdd(requestId, new TaskCompletionSource<bool>());
+
+                await _vault.BatchChangeOrderAsync(new BatchChangeOrderParams
                 {
+                    RequestId = requestId,
+
                     LpManagerAddress = _vaultContractAddress.ToLowerInvariant(),
                     LobId = VaultSymbolConfig.LobId,
                     OrderIds = orderIds,
@@ -437,20 +452,20 @@ namespace OnchainClob.Trading
 
                 var (pendingOrders, pendingCancellationRequests) = CreatePendingOrdersAndCancellationRequests(
                     selectedRequests,
-                    batchChangeOrderRequestId);
+                    requestId);
 
                 if (pendingOrders.Count > 0)
-                    _pendingOrders.TryAdd(batchChangeOrderRequestId, pendingOrders);
+                    _pendingOrders.TryAdd(requestId, pendingOrders);
 
                 if (pendingCancellationRequests.Count > 0)
-                    _pendingCancellationRequests.TryAdd(batchChangeOrderRequestId, pendingCancellationRequests);
+                    _pendingCancellationRequests.TryAdd(requestId, pendingCancellationRequests);
 
-                _pendingRequests.TryAdd(batchChangeOrderRequestId, true);
+                _pendingRequests[requestId].SetResult(true);
 
                 _logger?.LogDebug(
-                    "[{@symbol}] Add batch change order request with id {@id}",
+                    "[{symbol}] Add batch change order request with id {id}",
                     Symbol,
-                    batchChangeOrderRequestId);
+                    requestId);
             }
         }
 
@@ -463,10 +478,10 @@ namespace OnchainClob.Trading
             if (balances.GetTokenBalanceBySide(side) + previousLeaveAmount < inputAmount)
             {
                 _logger?.LogError(
-                    "[{@symbol}] Insufficient token balance for operation. " +
-                    "Token balance: {@balance}. " +
-                    "Previous leave amount: {@previousLeaveAmount}. " +
-                    "Input amount: {@inputAmount}.",
+                    "[{symbol}] Insufficient token balance for operation. " +
+                    "Token balance: {balance}. " +
+                    "Previous leave amount: {previousLeaveAmount}. " +
+                    "Input amount: {inputAmount}.",
                     Symbol,
                     balances.GetTokenBalanceBySide(side).ToString(),
                     previousLeaveAmount.ToString(),

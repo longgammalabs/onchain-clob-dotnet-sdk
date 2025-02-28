@@ -5,7 +5,7 @@ using ErrorEventArgs = OnchainClob.Trading.Events.ErrorEventArgs;
 
 namespace OnchainClob.Client.Abstract
 {
-    public interface IExecutor
+    public interface IAsyncExecutor
     {
         event EventHandler<MempooledEventArgs>? TxMempooled;
         event EventHandler<ConfirmedEventArgs>? TxSuccessful;
@@ -14,7 +14,7 @@ namespace OnchainClob.Client.Abstract
 
         ISigner Signer { get; }
 
-        Task<string> ExecuteAsync(
+        Task ExecuteAsync(
             TransactionRequestParams requestParams,
             CancellationToken cancellationToken = default);
 

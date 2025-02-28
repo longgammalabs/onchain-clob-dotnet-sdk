@@ -15,5 +15,6 @@ namespace OnchainClob.Client.Parameters
         public BigInteger? ChainId { get; init; }
         public bool EstimateGas { get; init; }
         public uint? EstimateGasReserveInPercent { get; init; }
+        public string RequestId { get; init; } = default!;
     }
 }

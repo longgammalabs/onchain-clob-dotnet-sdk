@@ -14,7 +14,7 @@ namespace OnchainClob.Client.Rpc
     /// This executor signs and sends transactions to the blockchain, monitors their progress,
     /// and provides status updates through events.
     /// </summary>
-    public class RpcAsyncExecutor : IExecutor
+    public class RpcAsyncExecutor : IAsyncExecutor
     {
         private const int TRACKER_UPDATE_INTERVAL_SEC = 3;
 
@@ -74,11 +74,7 @@ namespace OnchainClob.Client.Rpc
         /// </summary>
         /// <param name="requestParams">The transaction request parameters.</param>
         /// <param name="cancellationToken">Optional token to cancel the operation.</param>
-        /// <returns>
-        /// A unique request identifier that can be used to track the transaction status.
-        /// Status updates are provided through events (TxMempooled, TxSuccessful, TxFailed, Error).
-        /// </returns>
-        public async Task<string> ExecuteAsync(
+        public async Task ExecuteAsync(
             TransactionRequestParams requestParams,
             CancellationToken cancellationToken = default)
         {
@@ -91,8 +87,6 @@ namespace OnchainClob.Client.Rpc
                 logger: _logger,
                 cancellationToken);
 
-            var requestId = Guid.NewGuid().ToString();
-
             _ = Task.Run(() =>
             {
                 try
@@ -101,7 +95,7 @@ namespace OnchainClob.Client.Rpc
                     {
                         Error?.Invoke(this, new ErrorEventArgs
                         {
-                            RequestId = requestId,
+                            RequestId = requestParams.RequestId,
                             Error = error
                         });
                     }
@@ -109,7 +103,7 @@ namespace OnchainClob.Client.Rpc
                     {
                         TxMempooled?.Invoke(this, new MempooledEventArgs
                         {
-                            RequestId = requestId,
+                            RequestId = requestParams.RequestId,
                             TxId = txId
                         });
 
@@ -120,11 +114,9 @@ namespace OnchainClob.Client.Rpc
                 }
                 catch (Exception ex)
                 {
-                    _logger?.LogError(ex, "Error notifying result for {@RequestId}", requestId);
+                    _logger?.LogError(ex, "Error notifying result for {@RequestId}", requestParams.RequestId);
                 }
             });
-
-            return requestId;
         }
 
         /// <summary>

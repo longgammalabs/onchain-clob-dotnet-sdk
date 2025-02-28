@@ -14,7 +14,7 @@ namespace OnchainClob.Client.Rpc
     /// Executes blockchain transactions asynchronously with local request queuing and rate limiting.
     /// Provides ordered transaction execution with configurable local queue to prevent RPC server overload.
     /// </summary>
-    public class RpcQueuedAsyncExecutor : IExecutor
+    public class RpcQueuedAsyncExecutor : IAsyncExecutor
     {
         private const int RPC_QUEUE_SIZE = 16;
         private const int TRACKER_UPDATE_INTERVAL_SEC = 3;
@@ -78,15 +78,12 @@ namespace OnchainClob.Client.Rpc
         /// </summary>
         /// <param name="requestParams">The transaction request parameters.</param>
         /// <param name="cancellationToken">Optional token to cancel the operation.</param>
-        /// <returns>
-        /// A unique request identifier that can be used to track the transaction status.
-        /// Status updates are provided through events (TxMempooled, TxSuccessful, TxFailed, Error).
-        /// </returns>
-        public async Task<string> ExecuteAsync(
+        public Task ExecuteAsync(
             TransactionRequestParams requestParams,
             CancellationToken cancellationToken = default)
         {
-            return await _sequencer.EnqueueAsync(
+            return _sequencer.EnqueueAsync(
+                requestParams.RequestId,
                 requestParams,
                 Sequencer_OnSuccess,
                 Sequencer_OnError,
