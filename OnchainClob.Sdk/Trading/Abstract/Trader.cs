@@ -23,7 +23,7 @@ namespace OnchainClob.Trading.Abstract
 
         protected readonly ISymbolConfig _symbolConfig;
         protected readonly ILogger<Trader>? _logger;
-        protected readonly OnchainClobWsClient _webSocketClient;
+        protected readonly IOnchainClobWsClient _wsClient;
         private readonly OnchainClobRestApi _restApi;
         private readonly IAsyncExecutor _executor;
         private Channel<UserOrdersEventArgs>? _userOrdersChannel;
@@ -56,7 +56,7 @@ namespace OnchainClob.Trading.Abstract
 
         public Trader(
             ISymbolConfig symbolConfig,
-            OnchainClobWsClient webSocketClient,
+            IOnchainClobWsClient webSocketClient,
             OnchainClobRestApi restApi,
             IAsyncExecutor executor,
             ILogger<Trader>? logger = null)
@@ -64,10 +64,10 @@ namespace OnchainClob.Trading.Abstract
             _symbolConfig = symbolConfig ?? throw new ArgumentNullException(nameof(symbolConfig));
             _logger = logger;
 
-            _webSocketClient = webSocketClient ?? throw new ArgumentNullException(nameof(webSocketClient));
-            _webSocketClient.Disconnected += WebSocketClient_Disconnected;
-            _webSocketClient.StateStatusChanged += WebSocketClient_StateStatusChanged;
-            _webSocketClient.UserOrdersUpdated += WebSocketClient_UserOrdersUpdated;
+            _wsClient = webSocketClient ?? throw new ArgumentNullException(nameof(webSocketClient));
+            _wsClient.Disconnected += WebSocketClient_Disconnected;
+            _wsClient.StateStatusChanged += WebSocketClient_StateStatusChanged;
+            _wsClient.UserOrdersUpdated += WebSocketClient_UserOrdersUpdated;
 
             _restApi = restApi ?? throw new ArgumentNullException(nameof(restApi));
 
@@ -349,9 +349,9 @@ namespace OnchainClob.Trading.Abstract
             _filledUnclaimedOrders.Clear();
         }
 
-        private void WebSocketClient_StateStatusChanged(object? sender, StateStatus status)
+        private void WebSocketClient_StateStatusChanged(object? sender, WsClientStatus status)
         {
-            if (status == StateStatus.Sync)
+            if (status == WsClientStatus.Sync)
             {
                 _logger?.LogInformation("[{symbol}] Client syncing...", Symbol);
 
@@ -508,7 +508,7 @@ namespace OnchainClob.Trading.Abstract
                         o => o.ToOrder(_symbolConfig.Symbol, _symbolConfig.PricePrecision)),
                     cancellationToken);
 
-                IsAvailable = _webSocketClient.IsConnected && _webSocketClient.StateStatus == StateStatus.Ready;
+                IsAvailable = _wsClient.IsConnected && _wsClient.StateStatus == WsClientStatus.Ready;
             }
 
             OrdersChanged?.Invoke(this, orders);

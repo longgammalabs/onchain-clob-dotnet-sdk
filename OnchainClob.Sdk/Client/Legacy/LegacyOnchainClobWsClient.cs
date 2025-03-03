@@ -1,15 +1,15 @@
-﻿using Microsoft.Extensions.Logging;
-using OnchainClob.Client.Abstract;
-using OnchainClob.Client.Events;
+﻿using OnchainClob.Client.Events;
 using OnchainClob.Client.Models;
 using OnchainClob.Common;
+using Microsoft.Extensions.Logging;
 using System.Net.WebSockets;
 using System.Text.Json;
 using Websocket.Client;
+using OnchainClob.Client.Abstract;
 
-namespace OnchainClob.Client
+namespace OnchainClob.Client.Legacy
 {
-    public class OnchainClobWsClient(
+    public class LegacyOnchainClobWsClient(
         string url,
         WsClientOptions? options = null,
         ILogger<OnchainClobWsClient>? logger = null) : IDisposable, IOnchainClobWsClient
@@ -189,7 +189,7 @@ namespace OnchainClob.Client
             _ws!.Send(requestJson);
         }
 
-        public async void SubscribeVaultTotalValuesChannel(string vault)
+        public async void SubscribeVaultTotalValuesChannel()
         {
             _logger?.LogInformation("Subscribe to vault total values channel");
 
@@ -198,8 +198,7 @@ namespace OnchainClob.Client
                 method = "subscribe",
                 subscription = new
                 {
-                    vault,
-                    channel = VAULT_TOTAL_VALUES_CHANNEL
+                    channel = VAULT_TOTAL_VALUES_CHANNEL,
                 }
             });
 
@@ -370,21 +369,18 @@ namespace OnchainClob.Client
 
         private void HandleVaultTotalValuesMessage(ChannelMessage<JsonElement> message)
         {
-            var vaults = message.Data.Deserialize<VaultTotalValues[]>();
+            var vaultTotalValues = message.Data.Deserialize<VaultTotalValues>();
 
-            if (vaults == null)
+            if (vaultTotalValues == null)
             {
-                _logger?.LogError("Vaults total values is null");
+                _logger?.LogError("Vault total values is null");
                 return;
             }
 
-            foreach (var vault in vaults)
+            VaultTotalValuesUpdated?.Invoke(this, new VaultTotalValuesEventArgs
             {
-                VaultTotalValuesUpdated?.Invoke(this, new VaultTotalValuesEventArgs
-                {
-                    VaultTotalValues = vault
-                });
-            }
+                VaultTotalValues = vaultTotalValues
+            });
         }
 
         protected virtual void Dispose(bool disposing)

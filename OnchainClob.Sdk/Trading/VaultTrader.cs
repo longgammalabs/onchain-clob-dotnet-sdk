@@ -32,6 +32,8 @@ namespace OnchainClob.Trading
 
         protected override string UserAddress => _vaultContractAddress;
         protected IVaultSymbolConfig VaultSymbolConfig => (IVaultSymbolConfig)_symbolConfig;
+        protected OnchainClobWsClient WsClient => (OnchainClobWsClient)_wsClient;
+        public string VaultContractAddress => _vaultContractAddress.ToLowerInvariant();
 
         public VaultTrader(
             string vaultContractAddress,
@@ -58,7 +60,7 @@ namespace OnchainClob.Trading
                 ?? throw new ArgumentNullException(nameof(batchContractAddress));
             _defaultGasLimits = defaultGasLimits;
 
-            _webSocketClient.VaultTotalValuesUpdated += WebSocketClient_VaultTotalValuesUpdated;
+            WsClient.VaultTotalValuesUpdated += WebSocketClient_VaultTotalValuesUpdated;
 
             _vault = vault ?? throw new ArgumentNullException(nameof(vault));
             _balanceManager = balanceManager ?? throw new ArgumentNullException(nameof(balanceManager));
@@ -495,15 +497,19 @@ namespace OnchainClob.Trading
 
         protected override void SubscribeToChannels()
         {
-            _webSocketClient.SubscribeUserOrdersChannel(
+            WsClient.SubscribeUserOrdersChannel(
                 _vaultContractAddress.ToLowerInvariant(),
                 _symbolConfig.ContractAddress.ToLowerInvariant());
 
-            _webSocketClient.SubscribeVaultTotalValuesChannel();
+            WsClient.SubscribeVaultTotalValuesChannel(
+                _vaultContractAddress.ToLowerInvariant());
         }
 
         private void WebSocketClient_VaultTotalValuesUpdated(object sender, VaultTotalValuesEventArgs e)
         {
+            if (!e.VaultTotalValues.VaultAddress.Equals(_vaultContractAddress, StringComparison.InvariantCultureIgnoreCase))
+                return;
+
             VaultTotalValuesChanged?.Invoke(this, e);
         }
     }

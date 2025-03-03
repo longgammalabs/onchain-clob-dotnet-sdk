@@ -20,7 +20,6 @@ namespace OnchainClob.Client
             int limit = int.MaxValue,
             CancellationToken cancellationToken = default)
         {
-
             try
             {
                 var requestMessage = new HttpRequestMessage
@@ -69,7 +68,6 @@ namespace OnchainClob.Client
 
         public async Task<Result<List<Market>>> GetMarketsAsync(CancellationToken cancellationToken = default)
         {
-
             try
             {
                 var requestMessage = new HttpRequestMessage

@@ -6,15 +6,21 @@ namespace OnchainClob.Client.Models
     {
         [JsonPropertyName("id")]
         public string Id { get; init; } = default!;
+        [JsonPropertyName("vaultAddress")]
+        public string VaultAddress { get; init; } = default!;
 
         [JsonPropertyName("totalUSDValue")]
         public decimal TotalUSDValue { get; init; }
 
         [JsonPropertyName("totalUSDCostBasis")]
         public decimal TotalUSDCostBasis { get; init; }
+        [JsonPropertyName("lpPrice")]
+        public decimal LpPrice { get; init; }
 
         [JsonPropertyName("pastWeekReturn")]
         public decimal PastWeekReturn { get; init; }
+        [JsonPropertyName("pastWeekApr")]
+        public decimal PastWeekApr { get; init; }
 
         [JsonPropertyName("leaderAddress")]
         public string LeaderAddress { get; init; } = default!;

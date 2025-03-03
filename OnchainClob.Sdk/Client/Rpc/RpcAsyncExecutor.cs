@@ -114,7 +114,7 @@ namespace OnchainClob.Client.Rpc
                 }
                 catch (Exception ex)
                 {
-                    _logger?.LogError(ex, "Error notifying result for {@RequestId}", requestParams.RequestId);
+                    _logger?.LogError(ex, "Error notifying result for {requestId}", requestParams.RequestId);
                 }
             });
         }
