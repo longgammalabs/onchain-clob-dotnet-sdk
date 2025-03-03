@@ -1,18 +1,18 @@
-﻿using OnchainClob.Client.Events;
+﻿using Microsoft.Extensions.Logging;
+using OnchainClob.Client.Abstract;
+using OnchainClob.Client.Events;
 using OnchainClob.Client.Models;
 using OnchainClob.Common;
-using Microsoft.Extensions.Logging;
 using System.Net.WebSockets;
 using System.Text.Json;
 using Websocket.Client;
-using OnchainClob.Client.Abstract;
 
 namespace OnchainClob.Client.Legacy
 {
     public class LegacyOnchainClobWsClient(
         string url,
         WsClientOptions? options = null,
-        ILogger<OnchainClobWsClient>? logger = null) : IDisposable, IOnchainClobWsClient
+        ILogger<LegacyOnchainClobWsClient>? logger = null) : IDisposable, IOnchainClobWsClient
     {
         private const string CONNECTION_CHANNEL = "connection";
         private const string SQUID_STATE_CHANNEL = "squidState";
@@ -36,7 +36,7 @@ namespace OnchainClob.Client.Legacy
 
         private readonly string _url = url;
         private readonly WsClientOptions? _options = options;
-        private readonly ILogger<OnchainClobWsClient>? _logger = logger;
+        private readonly ILogger<LegacyOnchainClobWsClient>? _logger = logger;
         private readonly RateLimitControl _rateLimitControl = new(500);
         private WebsocketClient? _ws;
         private bool _disposed;
