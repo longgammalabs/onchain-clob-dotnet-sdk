@@ -153,7 +153,9 @@ namespace OnchainClob.Trading.Abstract
                     pendingOrders.Count,
                     placeOrderRequestId);
 
-                pendingOrders = [.. pendingOrders.Select(o => o with { Status = OrderStatus.CanceledAndClaimed })];
+                pendingOrders = pendingOrders
+                    .Select(o => o with { Status = OrderStatus.CanceledAndClaimed })
+                    .ToList();
 
                 OrdersChanged?.Invoke(this, pendingOrders);
             }
@@ -230,13 +232,14 @@ namespace OnchainClob.Trading.Abstract
                 }
                 else
                 {
-                    pendingOrders = [.. pendingOrders
+                    pendingOrders = pendingOrders
                         .Select(o => o with
                         {
                             OrderId = e.TxId,
                             TxnHash = e.TxId,
                             Status = OrderStatus.Mempooled
-                        })];
+                        })
+                        .ToList();
 
                     _pendingOrders.TryAdd(e.TxId, pendingOrders);
 

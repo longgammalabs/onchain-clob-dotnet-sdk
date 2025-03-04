@@ -13,7 +13,7 @@ namespace OnchainClob.MarketData.PythHermes
 
         public async Task<Result<byte[][]>> GetPriceUpdateDataAsync(IEnumerable<string> priceFeedIds)
         {
-            var idsQuery = string.Join("&", priceFeedIds.Select(id => $"ids[]={id}"));
+            var idsQuery = string.Join("&", priceFeedIds.Select(id => $"ids[]={id}").ToList());
             var response = await _httpClient.GetAsync(
                 Url.Combine(_baseUrl, $"v2/updates/price/latest?{idsQuery}"));
 
