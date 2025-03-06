@@ -16,11 +16,12 @@ namespace OnchainClob.Client.Rpc
     /// </summary>
     public class RpcAsyncExecutor : IAsyncExecutor
     {
-        private const int TRACKER_UPDATE_INTERVAL_SEC = 3;
+        private const int TX_CONFIRMATION_CHECK_INTERVAL_MS = 1000;
 
         private readonly RpcClient _rpc;
         private readonly ISigner _signer;
         private readonly RpcTransactionTracker _tracker;
+        private readonly int _txConfirmationCheckIntervalMs;
         private readonly ILogger<RpcAsyncExecutor>? _logger;
 
         /// <summary>
@@ -51,16 +52,19 @@ namespace OnchainClob.Client.Rpc
         /// <param name="rpc">The RPC client.</param>
         /// <param name="signer">The signer for transaction signing.</param>
         /// <param name="tracker">The transaction tracker for monitoring transaction status.</param>
+        /// <param name="txConfirmationCheckIntervalMs">The interval in milliseconds between transaction confirmation checks.</param>
         /// <param name="logger">Optional logger.</param>
         /// <exception cref="ArgumentNullException">Thrown when rpc, signer, or tracker is null.</exception>
         public RpcAsyncExecutor(
             RpcClient rpc,
             ISigner signer,
             RpcTransactionTracker tracker,
+            int txConfirmationCheckIntervalMs = TX_CONFIRMATION_CHECK_INTERVAL_MS,
             ILogger<RpcAsyncExecutor>? logger = null)
         {
             _signer = signer ?? throw new ArgumentNullException(nameof(signer));
             _logger = logger;
+            _txConfirmationCheckIntervalMs = txConfirmationCheckIntervalMs;
 
             _tracker = tracker ?? throw new ArgumentNullException(nameof(tracker));
             _tracker.ReceiptReceived += Tracker_ReceiptReceived;
@@ -109,7 +113,7 @@ namespace OnchainClob.Client.Rpc
 
                         _ = _tracker.TrackTransactionAsync(
                             txId,
-                            updateInterval: TimeSpan.FromSeconds(TRACKER_UPDATE_INTERVAL_SEC));
+                            updateInterval: TimeSpan.FromMilliseconds(_txConfirmationCheckIntervalMs));
                     }
                 }
                 catch (Exception ex)

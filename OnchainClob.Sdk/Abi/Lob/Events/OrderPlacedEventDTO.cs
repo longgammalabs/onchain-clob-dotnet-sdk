@@ -18,21 +18,23 @@ namespace OnchainClob.Abi.Lob.Events
         public ulong OrderId { get; set; }
         [Parameter("bool", "isAsk", 3, true)]
         public bool IsAsk { get; set; }
-        [Parameter("uint72", "price", 4)]
+        [Parameter("uint128", "quantity", 4)]
+        public BigInteger Quantity { get; set; }
+        [Parameter("uint72", "price", 5)]
         public BigInteger Price { get; set; }
-        [Parameter("uint128", "passive_shares", 5)]
+        [Parameter("uint128", "passive_shares", 6)]
         public BigInteger PassiveShares { get; set; }
-        [Parameter("uint128", "passive_fee", 6)]
+        [Parameter("uint128", "passive_fee", 7)]
         public BigInteger PassiveFee { get; set; }
-        [Parameter("uint128", "aggressive_shares", 7)]
+        [Parameter("uint128", "aggressive_shares", 8)]
         public BigInteger AggressiveShares { get; set; }
-        [Parameter("uint128", "aggressive_value", 8)]
+        [Parameter("uint128", "aggressive_value", 9)]
         public BigInteger AggressiveValue { get; set; }
-        [Parameter("uint128", "aggressive_fee", 9)]
+        [Parameter("uint128", "aggressive_fee", 10)]
         public BigInteger AggressiveFee { get; set; }
-        [Parameter("bool", "market_only", 10)]
+        [Parameter("bool", "market_only", 11)]
         public bool MarketOnly { get; set; }
-        [Parameter("bool", "post_only", 11)]
+        [Parameter("bool", "post_only", 12)]
         public bool PostOnly { get; set; }
     }
 }

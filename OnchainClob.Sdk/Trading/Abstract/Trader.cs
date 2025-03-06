@@ -1,4 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
+using Nethereum.Contracts;
+using OnchainClob.Abi.Lob.Events;
 using OnchainClob.Client;
 using OnchainClob.Client.Abstract;
 using OnchainClob.Client.Configuration;
@@ -73,6 +75,7 @@ namespace OnchainClob.Trading.Abstract
 
             _executor = executor ?? throw new ArgumentNullException(nameof(executor));
             _executor.TxMempooled += Executor_TxMempooled;
+            _executor.TxSuccessful += Executor_TxSuccessful;
             _executor.TxFailed += Executor_TxFailed;
             _executor.Error += Executor_Error;
 
@@ -265,6 +268,86 @@ namespace OnchainClob.Trading.Abstract
                         _symbolConfig.Symbol,
                         e.TxId);
                 }
+            }
+        }
+
+        private async void Executor_TxSuccessful(object sender, ConfirmedEventArgs e)
+        {
+            var symbolEvents = e.Receipt.Logs
+                .Where(l =>
+                    l.Address.Equals(_symbolConfig.ContractAddress, StringComparison.InvariantCultureIgnoreCase))
+                .ToList();
+
+            if (symbolEvents.Count == 0)
+                return;
+
+            var orderPlacedEvents = e.Receipt.Logs
+                .Where(l =>
+                    l.Topics[0].Equals($"0x{OrderPlacedEventDTO.SignatureHash}", StringComparison.InvariantCultureIgnoreCase))
+                .Select(l => new OrderPlacedEventDTO().DecodeEvent(l.ToFilterLog()))
+                .ToList();
+
+            var orderClaimedEvents = e.Receipt.Logs
+                .Where(l =>
+                    l.Topics[0].Equals($"0x{OrderClaimedEventDTO.SignatureHash}", StringComparison.InvariantCultureIgnoreCase))
+                .Select(l => new OrderClaimedEventDTO().DecodeEvent(l.ToFilterLog()))
+                .ToList();
+
+            _logger?.LogDebug(
+                "[{symbol}] Tx {txId} confirmed. OrderPlaced events count is {placed}. OrderClaimed events count is {claimed}",
+                _symbolConfig.Symbol,
+                e.Receipt.TransactionHash,
+                orderPlacedEvents.Count,
+                orderClaimedEvents.Count);
+
+            try
+            {
+                await _ordersSync.WaitAsync();
+
+                if (_pendingOrders.TryGetValue(e.Receipt.TransactionHash, out var pendingOrders))
+                {
+                    // NOTE: if the number of orders matches the number of events, then the orders can be matched one to one.
+                    // Otherwise, we need to wait for a response from the backend
+                    if (pendingOrders.Count == orderPlacedEvents.Count)
+                    {
+                        pendingOrders = pendingOrders
+                            .Select((o, i) => o with
+                            {
+                                OrderId = orderPlacedEvents[i].OrderId.ToString(),
+                                Status = orderPlacedEvents[i].OrderId == 0
+                                    ? OrderStatus.FilledAndClaimed
+                                    : OrderStatus.Placed,
+                                // todo: fill qty's params?
+                            })
+                            .ToList();
+
+                        foreach (var pendingOrder in pendingOrders)
+                            if (pendingOrder.Status == OrderStatus.Placed)
+                                _activeOrders[pendingOrder.OrderId] = pendingOrder;
+
+                        _pendingOrders.TryRemove(e.Receipt.TransactionHash, out _);
+                    }
+                }
+
+                var canceledOrderIds = orderClaimedEvents
+                    .Where(c => !c.OnlyClaim || c.OrderSharesRemaining == 0)
+                    .Select(c => c.OrderId)
+                    .ToList();
+
+                foreach (var orderId in canceledOrderIds)
+                {
+                    _activeOrders.Remove(orderId.ToString(), out var order);
+                }
+            }
+            finally
+            {
+                _ordersSync.Release();
+            }
+
+            // if the transaction confirmed, try removing pending cancellation requests if exist
+            if (_pendingCancellationRequests.TryRemove(e.Receipt.TransactionHash, out var orderIds))
+            {
+                _ = ClearCanceledOrdersAfterDelay(orderIds);
             }
         }
 
@@ -527,11 +610,11 @@ namespace OnchainClob.Trading.Abstract
 
                 foreach (var order in orders)
                 {
-                    if (order.IsActive)
+                    if (order.IsActive) // Placed || PartiallyFilled;
                     {
                         _activeOrders[order.OrderId] = order;
                     }
-                    else if (order.Status == OrderStatus.Filled)
+                    else if (order.Status == OrderStatus.Filled) // Filled
                     {
                         // remove history order from active orders
                         _activeOrders.Remove(order.OrderId, out var _);
@@ -539,7 +622,7 @@ namespace OnchainClob.Trading.Abstract
                         // add filled order to unclaimed orders
                         _filledUnclaimedOrders[order.OrderId] = order;
                     }
-                    else
+                    else // PartiallyFilledAndClaimed || FilledAndClaimed || CanceledAndClaimed || Rejected
                     {
                         // remove history order from active orders, if exists
                         _activeOrders.Remove(order.OrderId, out _);
@@ -548,12 +631,7 @@ namespace OnchainClob.Trading.Abstract
                         _filledUnclaimedOrders.Remove(order.OrderId, out _);
 
                         // try to remove canceled order entry after some delay
-                        _ = Task.Delay(CANCELED_ORDERS_TTL_MS)
-                            .ContinueWith(t =>
-                            {
-                                if (ulong.TryParse(order.OrderId, out var orderId))
-                                    _canceledOrders.TryRemove(orderId, out _);
-                            });
+                        _ = ClearCanceledOrdersAfterDelay([order.OrderId]);
                     }
 
                     // try remove pending orders if exists
@@ -571,6 +649,18 @@ namespace OnchainClob.Trading.Abstract
             {
                 _ordersSync.Release();
             }
+        }
+
+        private Task ClearCanceledOrdersAfterDelay(IEnumerable<string> orderIds)
+        {
+            return Task
+                .Delay(CANCELED_ORDERS_TTL_MS)
+                .ContinueWith(t =>
+                {
+                    foreach (var orderId in orderIds)
+                        if (ulong.TryParse(orderId, out var ulongOrderId))
+                            _canceledOrders.TryRemove(ulongOrderId, out _);
+                });
         }
 
         protected BigInteger GetInputAmount(
