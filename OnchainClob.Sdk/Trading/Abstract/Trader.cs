@@ -300,6 +300,8 @@ namespace OnchainClob.Trading.Abstract
                 orderPlacedEvents.Count,
                 orderClaimedEvents.Count);
 
+            List<Order> changedOrders = [];
+
             try
             {
                 await _ordersSync.WaitAsync();
@@ -322,8 +324,13 @@ namespace OnchainClob.Trading.Abstract
                             .ToList();
 
                         foreach (var pendingOrder in pendingOrders)
+                        {
                             if (pendingOrder.Status == OrderStatus.Placed)
+                            {
                                 _activeOrders[pendingOrder.OrderId] = pendingOrder;
+                                changedOrders.Add(pendingOrder);
+                            }
+                        }
 
                         _pendingOrders.TryRemove(e.Receipt.TransactionHash, out _);
                     }
@@ -336,7 +343,10 @@ namespace OnchainClob.Trading.Abstract
 
                 foreach (var orderId in canceledOrderIds)
                 {
-                    _activeOrders.Remove(orderId.ToString(), out var order);
+                    if (_activeOrders.Remove(orderId.ToString(), out var order))
+                    {
+                        changedOrders.Add(order);
+                    }
                 }
             }
             finally
@@ -349,6 +359,9 @@ namespace OnchainClob.Trading.Abstract
             {
                 _ = ClearCanceledOrdersAfterDelay(orderIds);
             }
+
+            if (changedOrders.Count > 0)
+                OrdersChanged?.Invoke(this, changedOrders);
         }
 
         private async void Executor_TxFailed(object sender, ConfirmedEventArgs e)
