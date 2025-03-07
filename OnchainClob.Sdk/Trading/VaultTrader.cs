@@ -197,79 +197,102 @@ namespace OnchainClob.Trading
             bool transferTokens = false,
             CancellationToken cancellationToken = default)
         {
-            // return false if order has already been canceled
-            if (!_canceledOrders.TryAdd(orderId, DateTimeOffset.UtcNow))
-                return false;
+            var success = false;
 
-            // get native balance
-            var (balance, balanceError) = await _balanceManager.GetNativeBalanceAsync(
-                forceUpdate: true,
-                cancellationToken);
-
-            if (balanceError != null)
+            try
             {
-                _logger?.LogError(balanceError, "[{symbol}] Get native balance error", Symbol);
-                return false;
-            }
+                // return false if order has already been canceled
+                if (!_canceledOrders.TryAdd(orderId, DateTimeOffset.UtcNow))
+                {
+                    success = true;
+                    return false;
+                }
 
-            // get max priority fee per gas
-            var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
-                cancellationToken);
+                // get native balance
+                var (balance, balanceError) = await _balanceManager.GetNativeBalanceAsync(
+                    forceUpdate: true,
+                    cancellationToken);
 
-            if (maxPriorityFeeError != null)
-            {
-                _logger?.LogError(maxPriorityFeeError, "[{symbol}] Get max prirority fee per gas error", Symbol);
-                return false;
-            }
+                if (balanceError != null)
+                {
+                    _logger?.LogError(balanceError, "[{symbol}] Get native balance error", Symbol);
+                    return false;
+                }
 
-            var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
-            var maxFee = maxFeePerGas * (_defaultGasLimits?.ClaimOrder ?? 0);
+                // get max priority fee per gas
+                var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
+                    cancellationToken);
 
-            if (balance < maxFee)
-            {
-                _logger?.LogError(
-                    "[{symbol}] Insufficient native token balance for ClaimOrder fee. " +
-                        "Balance: {balance}. " +
-                        "Max fee: {fee}.",
+                if (maxPriorityFeeError != null)
+                {
+                    _logger?.LogError(maxPriorityFeeError, "[{symbol}] Get max prirority fee per gas error", Symbol);
+                    return false;
+                }
+
+                var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
+                var maxFee = maxFeePerGas * (_defaultGasLimits?.ClaimOrder ?? 0);
+
+                if (balance < maxFee)
+                {
+                    _logger?.LogError(
+                        "[{symbol}] Insufficient native token balance for ClaimOrder fee. " +
+                            "Balance: {balance}. " +
+                            "Max fee: {fee}.",
+                        Symbol,
+                        balance.ToString(),
+                        maxFee.ToString());
+
+                    return false;
+                }
+
+                var expiration = DateTimeOffset.UtcNow.AddSeconds(DEFAULT_EXPIRED_SEC).ToUnixTimeSeconds();
+
+                var requestId = Guid.NewGuid().ToString();
+                _pendingRequests.TryAdd(requestId, new TaskCompletionSource<bool>());
+
+                await _vault.ClaimOrderAsync(new ClaimOrderParams
+                {
+                    RequestId = requestId,
+
+                    LobId = VaultSymbolConfig.LobId,
+                    OrderId = orderId,
+                    Expires = expiration,
+
+                    ContractAddress = _vaultContractAddress.ToLowerInvariant(),
+                    MaxFeePerGas = maxFeePerGas,
+                    MaxPriorityFeePerGas = maxPriorityFeePerGas,
+                    GasLimit = _defaultGasLimits?.ClaimOrder,
+                    EstimateGas = true,
+                    EstimateGasReserveInPercent = ESTIMATE_GAS_RESERVE_IN_PERCENTS,
+                    TransactionType = EIP1559_TRANSACTION_TYPE,
+                    ChainId = _rpc.ChainId
+                }, cancellationToken);
+
+                success = true;
+
+                _pendingCancellationRequests.TryAdd(requestId, [orderId.ToString()]);
+                _pendingRequests[requestId].SetResult(true);
+
+                _logger?.LogDebug(
+                    "[{symbol}] Add cancellation request with id {id} and orderId {orderId}",
                     Symbol,
-                    balance.ToString(),
-                    maxFee.ToString());
-                return false;
+                    requestId,
+                    orderId);
+
+                return true;
             }
-
-            var expiration = DateTimeOffset.UtcNow.AddSeconds(DEFAULT_EXPIRED_SEC).ToUnixTimeSeconds();
-
-            var requestId = Guid.NewGuid().ToString();
-            _pendingRequests.TryAdd(requestId, new TaskCompletionSource<bool>());
-
-            await _vault.ClaimOrderAsync(new ClaimOrderParams
+            catch
             {
-                RequestId = requestId,
-
-                LobId = VaultSymbolConfig.LobId,
-                OrderId = orderId,
-                Expires = expiration,
-
-                ContractAddress = _vaultContractAddress.ToLowerInvariant(),
-                MaxFeePerGas = maxFeePerGas,
-                MaxPriorityFeePerGas = maxPriorityFeePerGas,
-                GasLimit = _defaultGasLimits?.ClaimOrder,
-                EstimateGas = true,
-                EstimateGasReserveInPercent = ESTIMATE_GAS_RESERVE_IN_PERCENTS,
-                TransactionType = EIP1559_TRANSACTION_TYPE,
-                ChainId = _rpc.ChainId
-            }, cancellationToken);
-
-            _pendingCancellationRequests.TryAdd(requestId, [orderId.ToString()]);
-            _pendingRequests[requestId].SetResult(true);
-
-            _logger?.LogDebug(
-                "[{symbol}] Add cancellation request with id {id} and orderId {orderId}",
-                Symbol,
-                requestId,
-                orderId);
-
-            return true;
+                throw;
+            }
+            finally
+            {
+                if (!success)
+                {
+                    // mark order as not cancelled
+                    _canceledOrders.TryRemove(orderId, out _);
+                }
+            }
         }
 
         public override Task<bool> OrderModifyAsync(
@@ -289,185 +312,205 @@ namespace OnchainClob.Trading
             bool transferTokens = false,
             CancellationToken cancellationToken = default)
         {
-            // try cancel pending orders
-            foreach (var request in requests.OfType<CancelPendingOrderRequest>())
-                await PendingOrderCancelAsync(request.RequestId, cancellationToken);
+            var success = false;
 
-            // filter out pending cancellation requests and already canceled orders, then sort by priority
-            requests = [.. requests
-                .Where(r =>
-                    r is not CancelPendingOrderRequest &&
-                    (r is not ClaimOrderRequest || _canceledOrders.TryAdd(r.OrderId, DateTimeOffset.UtcNow)))
-                .OrderByDescending(r => r.Priority)];
-
-            if (!requests.Any())
+            try
             {
-                _logger?.LogInformation("All requests filtered");
-                return;
-            }
+                // try cancel pending orders
+                foreach (var request in requests.OfType<CancelPendingOrderRequest>())
+                    await PendingOrderCancelAsync(request.RequestId, cancellationToken);
 
-            // get max priority fee per gas
-            var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
-                cancellationToken);
+                // filter out pending cancellation requests and already canceled orders, then sort by priority
+                requests = [.. requests
+                    .Where(r => r is not CancelPendingOrderRequest)
+                    .Where(r => r is not ClaimOrderRequest || _canceledOrders.TryAdd(r.OrderId, DateTimeOffset.UtcNow))
+                    .OrderByDescending(r => r.Priority)];
 
-            if (maxPriorityFeeError != null)
-            {
-                _logger?.LogError(maxPriorityFeeError, "[{symbol}] Get max prirority fee per gas error", Symbol);
-                return;
-            }
+                if (!requests.Any())
+                {
+                    _logger?.LogInformation("All requests filtered");
+                    return;
+                }
 
-            var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
-
-            foreach (var (batchGasLimit, batchRequests) in requests.SplitIntoSeveralBatches(_defaultGasLimits))
-            {
-                var selectedRequests = batchRequests.ToList();
-
-                var orderIds = selectedRequests.Select(r => r.OrderId).ToList();
-                var prices = selectedRequests.Select(r => r.Price).ToList();
-                var qtys = selectedRequests.Select(r => r.Qty).ToList();
-                var maxFee = maxFeePerGas * batchGasLimit ?? 0;
-
-                _logger?.LogDebug("[{symbol}] Batching {count} requests. " +
-                    "Order ids: {orderIds}, " +
-                    "Prices: {prices}, " +
-                    "Qtys: {qtys}, " +
-                    "Max fee: {maxFee}",
-                    Symbol,
-                    selectedRequests.Count,
-                    string.Join(", ", orderIds),
-                    string.Join(", ", prices),
-                    string.Join(", ", qtys),
-                    maxFee.ToString());
-
-                var (balances, balancesError) = await _balanceManager.GetAvailableBalancesAsync(
-                    _symbolConfig.ContractAddress,
-                    tokenContractAddress: null,
-                    forceUpdate: true,
+                // get max priority fee per gas
+                var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
                     cancellationToken);
 
-                if (balancesError != null)
+                if (maxPriorityFeeError != null)
                 {
-                    _logger?.LogError(balancesError, "[{symbol}] Get available balances error", Symbol);
+                    _logger?.LogError(maxPriorityFeeError, "[{symbol}] Get max prirority fee per gas error", Symbol);
                     return;
                 }
 
-                if (balances.NativeBalance < maxFee + _pyth.PriceUpdateFee)
+                var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
+
+                foreach (var (batchGasLimit, batchRequests) in requests.SplitIntoSeveralBatches(_defaultGasLimits))
                 {
-                    _logger?.LogError(
-                        "[{symbol}] Insufficient native token balance for BatchChangeOrder fee. " +
-                            "Native balance: {balance}. " +
-                            "Max fee: {fee}. " +
-                            "Price update fee: {priceUpdateFee}.",
+                    var selectedRequests = batchRequests.ToList();
+
+                    var orderIds = selectedRequests.Select(r => r.OrderId).ToList();
+                    var prices = selectedRequests.Select(r => r.Price).ToList();
+                    var qtys = selectedRequests.Select(r => r.Qty).ToList();
+                    var maxFee = maxFeePerGas * batchGasLimit ?? 0;
+
+                    _logger?.LogDebug("[{symbol}] Batching {count} requests. " +
+                        "Order ids: {orderIds}, " +
+                        "Prices: {prices}, " +
+                        "Qtys: {qtys}, " +
+                        "Max fee: {maxFee}",
                         Symbol,
-                        balances.NativeBalance.ToString(),
-                        maxFee.ToString(),
-                        _pyth.PriceUpdateFee.ToString());
+                        selectedRequests.Count,
+                        string.Join(", ", orderIds),
+                        string.Join(", ", prices),
+                        string.Join(", ", qtys),
+                        maxFee.ToString());
 
-                    return;
-                }
+                    var (balances, balancesError) = await _balanceManager.GetAvailableBalancesAsync(
+                        _symbolConfig.ContractAddress,
+                        tokenContractAddress: null,
+                        forceUpdate: true,
+                        cancellationToken);
 
-                if (qtys.Any(q => q > 0))
-                {
-                    // check balances for both sides
-                    foreach (var side in new Side[] { Side.Buy, Side.Sell })
+                    if (balancesError != null)
                     {
-                        var previousLeaveAmount = GetPreviousLeaveAmount(orderIds, side);
-                        var inputAmount = GetInputAmount(orderIds, prices, qtys, side);
+                        _logger?.LogError(balancesError, "[{symbol}] Get available balances error", Symbol);
+                        return;
+                    }
 
-                        // if there is no input amount for this side, skip it
-                        if (inputAmount == 0)
-                            continue;
+                    if (balances.NativeBalance < maxFee + _pyth.PriceUpdateFee)
+                    {
+                        _logger?.LogError(
+                            "[{symbol}] Insufficient native token balance for BatchChangeOrder fee. " +
+                                "Native balance: {balance}. " +
+                                "Max fee: {fee}. " +
+                                "Price update fee: {priceUpdateFee}.",
+                            Symbol,
+                            balances.NativeBalance.ToString(),
+                            maxFee.ToString(),
+                            _pyth.PriceUpdateFee.ToString());
 
-                        if (!CheckBalance(side, balances, previousLeaveAmount, inputAmount))
+                        return;
+                    }
+
+                    if (qtys.Any(q => q > 0))
+                    {
+                        // check balances for both sides
+                        foreach (var side in new Side[] { Side.Buy, Side.Sell })
                         {
-                            // skip order places for side
-                            for (var i = selectedRequests.Count - 1; i >= 0; i--)
-                            {
-                                if (selectedRequests[i].Qty > 0 &&
-                                    selectedRequests[i].OrderId.GetSideFromOrderId() == side)
-                                {
-                                    _logger?.LogDebug("[{symbol}] Remove from batch {side} order place with " +
-                                        "price {price} and qty {qty} due to insufficient token balance",
-                                        Symbol,
-                                        side,
-                                        prices[i].ToString(),
-                                        qtys[i].ToString());
+                            var previousLeaveAmount = GetPreviousLeaveAmount(orderIds, side);
+                            var inputAmount = GetInputAmount(orderIds, prices, qtys, side);
 
-                                    selectedRequests.RemoveAt(i);
-                                    orderIds.RemoveAt(i);
-                                    qtys.RemoveAt(i);
-                                    prices.RemoveAt(i);
+                            // if there is no input amount for this side, skip it
+                            if (inputAmount == 0)
+                                continue;
+
+                            if (!CheckBalance(side, balances, previousLeaveAmount, inputAmount))
+                            {
+                                // skip order places for side
+                                for (var i = selectedRequests.Count - 1; i >= 0; i--)
+                                {
+                                    if (selectedRequests[i].Qty > 0 &&
+                                        selectedRequests[i].OrderId.GetSideFromOrderId() == side)
+                                    {
+                                        _logger?.LogDebug("[{symbol}] Remove from batch {side} order place with " +
+                                            "price {price} and qty {qty} due to insufficient token balance",
+                                            Symbol,
+                                            side,
+                                            prices[i].ToString(),
+                                            qtys[i].ToString());
+
+                                        selectedRequests.RemoveAt(i);
+                                        orderIds.RemoveAt(i);
+                                        qtys.RemoveAt(i);
+                                        prices.RemoveAt(i);
+                                    }
                                 }
                             }
                         }
                     }
+
+                    if (selectedRequests.Count == 0)
+                    {
+                        _logger?.LogDebug("[{symbol}] All requests filtered after balance check", Symbol);
+                        return;
+                    }
+
+                    var expiration = DateTimeOffset.UtcNow.AddSeconds(DEFAULT_EXPIRED_SEC).ToUnixTimeSeconds();
+
+                    var (priceUpdateData, priceUpdateDataError) = await _pyth.GetPriceUpdateDataAsync();
+
+                    if (priceUpdateDataError != null)
+                    {
+                        _logger?.LogWarning(
+                            priceUpdateDataError,
+                            "[{symbol}] Get price update data error",
+                            Symbol);
+                    }
+
+                    var priceUpdateFee = priceUpdateData != null ? _pyth.PriceUpdateFee : 0;
+
+                    var requestId = Guid.NewGuid().ToString();
+                    _pendingRequests.TryAdd(requestId, new TaskCompletionSource<bool>());
+
+                    await _vault.BatchChangeOrderAsync(new BatchChangeOrderParams
+                    {
+                        RequestId = requestId,
+
+                        LpManagerAddress = _vaultContractAddress.ToLowerInvariant(),
+                        LobId = VaultSymbolConfig.LobId,
+                        OrderIds = orderIds,
+                        Prices = prices,
+                        Quantities = qtys,
+                        MaxCommissionPerOrder = UINT128_MAX_VALUE,
+                        PostOnly = postOnly,
+                        Expires = expiration,
+                        PriceUpdateData = priceUpdateData ?? [],
+
+                        Value = priceUpdateFee,
+                        ContractAddress = _batchContractAddress.ToLowerInvariant(),
+                        MaxFeePerGas = maxFeePerGas,
+                        MaxPriorityFeePerGas = maxPriorityFeePerGas,
+                        GasLimit = batchGasLimit,
+                        EstimateGas = true,
+
+                        EstimateGasReserveInPercent = ESTIMATE_GAS_RESERVE_IN_PERCENTS,
+                        TransactionType = EIP1559_TRANSACTION_TYPE,
+                        ChainId = _rpc.ChainId
+                    }, cancellationToken);
+
+                    success = true;
+
+                    var (pendingOrders, pendingCancellationRequests) = CreatePendingOrdersAndCancellationRequests(
+                        selectedRequests,
+                        requestId);
+
+                    if (pendingOrders.Count > 0)
+                        _pendingOrders.TryAdd(requestId, pendingOrders);
+
+                    if (pendingCancellationRequests.Count > 0)
+                        _pendingCancellationRequests.TryAdd(requestId, pendingCancellationRequests);
+
+                    _pendingRequests[requestId].SetResult(true);
+
+                    _logger?.LogDebug(
+                        "[{symbol}] Add batch change order request with id {id}",
+                        Symbol,
+                        requestId);
                 }
-
-                if (selectedRequests.Count == 0)
+            }
+            catch
+            {
+                throw;
+            }
+            finally
+            {
+                if (!success)
                 {
-                    _logger?.LogDebug("[{symbol}] All requests filtered after balance check", Symbol);
-                    return;
+                    // in case of an error, return the orders to the status of not cancelled
+                    foreach (var request in requests)
+                        if (request is ClaimOrderRequest claimOrderRequest)
+                            _canceledOrders.TryRemove(claimOrderRequest.OrderId, out _);
                 }
-
-                var expiration = DateTimeOffset.UtcNow.AddSeconds(DEFAULT_EXPIRED_SEC).ToUnixTimeSeconds();
-
-                var (priceUpdateData, priceUpdateDataError) = await _pyth.GetPriceUpdateDataAsync();
-
-                if (priceUpdateDataError != null)
-                {
-                    _logger?.LogWarning(
-                        priceUpdateDataError,
-                        "[{symbol}] Get price update data error",
-                        Symbol);
-                }
-
-                var priceUpdateFee = priceUpdateData != null ? _pyth.PriceUpdateFee : 0;
-
-                var requestId = Guid.NewGuid().ToString();
-                _pendingRequests.TryAdd(requestId, new TaskCompletionSource<bool>());
-
-                await _vault.BatchChangeOrderAsync(new BatchChangeOrderParams
-                {
-                    RequestId = requestId,
-
-                    LpManagerAddress = _vaultContractAddress.ToLowerInvariant(),
-                    LobId = VaultSymbolConfig.LobId,
-                    OrderIds = orderIds,
-                    Prices = prices,
-                    Quantities = qtys,
-                    MaxCommissionPerOrder = UINT128_MAX_VALUE,
-                    PostOnly = postOnly,
-                    Expires = expiration,
-                    PriceUpdateData = priceUpdateData ?? [],
-
-                    Value = priceUpdateFee,
-                    ContractAddress = _batchContractAddress.ToLowerInvariant(),
-                    MaxFeePerGas = maxFeePerGas,
-                    MaxPriorityFeePerGas = maxPriorityFeePerGas,
-                    GasLimit = batchGasLimit,
-                    EstimateGas = true,
-
-                    EstimateGasReserveInPercent = ESTIMATE_GAS_RESERVE_IN_PERCENTS,
-                    TransactionType = EIP1559_TRANSACTION_TYPE,
-                    ChainId = _rpc.ChainId
-                }, cancellationToken);
-
-                var (pendingOrders, pendingCancellationRequests) = CreatePendingOrdersAndCancellationRequests(
-                    selectedRequests,
-                    requestId);
-
-                if (pendingOrders.Count > 0)
-                    _pendingOrders.TryAdd(requestId, pendingOrders);
-
-                if (pendingCancellationRequests.Count > 0)
-                    _pendingCancellationRequests.TryAdd(requestId, pendingCancellationRequests);
-
-                _pendingRequests[requestId].SetResult(true);
-
-                _logger?.LogDebug(
-                    "[{symbol}] Add batch change order request with id {id}",
-                    Symbol,
-                    requestId);
             }
         }
 
