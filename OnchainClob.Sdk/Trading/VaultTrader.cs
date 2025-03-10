@@ -4,7 +4,8 @@ using OnchainClob.Client.Configuration;
 using OnchainClob.Client.Events;
 using OnchainClob.Client.Vault;
 using OnchainClob.Common;
-using OnchainClob.MarketData.PythHermes;
+using OnchainClob.Services;
+using OnchainClob.Services.Pyth;
 using OnchainClob.Trading.Abstract;
 using OnchainClob.Trading.Requests;
 using Revelium.Evm.Rpc;
@@ -14,7 +15,6 @@ namespace OnchainClob.Trading
 {
     public class VaultTrader : Trader, IVaultTrader
     {
-        private const long BASE_FEE_PER_GAS = 200_000_000_000;
         private readonly BigInteger UINT128_MAX_VALUE = (BigInteger.One << 128) - 1;
         private const long DEFAULT_EXPIRED_SEC = 60 * 60 * 24;
         private const int EIP1559_TRANSACTION_TYPE = 2;
@@ -28,6 +28,7 @@ namespace OnchainClob.Trading
         private readonly BalanceManager _balanceManager;
         private readonly RpcClient _rpc;
         private readonly Pyth _pyth;
+        private readonly GasStation _gasStation;
         private readonly GasLimits? _defaultGasLimits;
 
         protected override string UserAddress => _vaultContractAddress;
@@ -45,6 +46,7 @@ namespace OnchainClob.Trading
             BalanceManager balanceManager,
             RpcClient rpc,
             Pyth pyth,
+            GasStation gasStation,
             GasLimits? defaultGasLimits = null,
             ILogger<VaultTrader>? logger = null)
             : base(
@@ -66,6 +68,7 @@ namespace OnchainClob.Trading
             _balanceManager = balanceManager ?? throw new ArgumentNullException(nameof(balanceManager));
             _rpc = rpc ?? throw new ArgumentNullException(nameof(rpc));
             _pyth = pyth ?? throw new ArgumentNullException(nameof(pyth));
+            _gasStation = gasStation ?? throw new ArgumentNullException(nameof(gasStation));
         }
 
         public override async Task OrderSendAsync(
@@ -94,8 +97,7 @@ namespace OnchainClob.Trading
             }
 
             // get max priority fee per gas
-            var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
-                cancellationToken);
+            var (maxPriorityFeePerGas, maxPriorityFeeError) = _gasStation.GetMaxPriorityFeePerGas();
 
             if (maxPriorityFeeError != null)
             {
@@ -103,7 +105,16 @@ namespace OnchainClob.Trading
                 return;
             }
 
-            var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
+            // get base fee per gas
+            var (baseFeePerGas, baseFeePerGasError) = _gasStation.GetBaseFeePerGas();
+
+            if (baseFeePerGasError != null)
+            {
+                _logger?.LogError(maxPriorityFeeError, "[{symbol}] Get base fee per gas error", Symbol);
+                return;
+            }
+
+            var maxFeePerGas = maxPriorityFeePerGas + 2 * baseFeePerGas;
             var maxFee = maxFeePerGas * (_defaultGasLimits?.PlaceOrder ?? 0);
 
             if (balances.NativeBalance < maxFee + _pyth.PriceUpdateFee)
@@ -128,16 +139,7 @@ namespace OnchainClob.Trading
 
             var expiration = DateTimeOffset.UtcNow.AddSeconds(DEFAULT_EXPIRED_SEC).ToUnixTimeSeconds();
 
-            var (priceUpdateData, priceUpdateDataError) = await _pyth.GetPriceUpdateDataAsync();
-
-            if (priceUpdateDataError != null)
-            {
-                _logger?.LogWarning(
-                    priceUpdateDataError,
-                    "[{symbol}] Get price update data error",
-                    Symbol);
-            }
-
+            var priceUpdateData = _pyth.GetPriceUpdateData();
             var priceUpdateFee = priceUpdateData != null ? _pyth.PriceUpdateFee : 0;
 
             var requestId = Guid.NewGuid().ToString();
@@ -220,8 +222,7 @@ namespace OnchainClob.Trading
                 }
 
                 // get max priority fee per gas
-                var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
-                    cancellationToken);
+                var (maxPriorityFeePerGas, maxPriorityFeeError) = _gasStation.GetMaxPriorityFeePerGas();
 
                 if (maxPriorityFeeError != null)
                 {
@@ -229,7 +230,16 @@ namespace OnchainClob.Trading
                     return false;
                 }
 
-                var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
+                // get base fee per gas
+                var (baseFeePerGas, baseFeePerGasError) = _gasStation.GetBaseFeePerGas();
+
+                if (baseFeePerGasError != null)
+                {
+                    _logger?.LogError(maxPriorityFeeError, "[{symbol}] Get base fee per gas error", Symbol);
+                    return false;
+                }
+
+                var maxFeePerGas = maxPriorityFeePerGas + 2 * baseFeePerGas;
                 var maxFee = maxFeePerGas * (_defaultGasLimits?.ClaimOrder ?? 0);
 
                 if (balance < maxFee)
@@ -333,8 +343,7 @@ namespace OnchainClob.Trading
                 }
 
                 // get max priority fee per gas
-                var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
-                    cancellationToken);
+                var (maxPriorityFeePerGas, maxPriorityFeeError) = _gasStation.GetMaxPriorityFeePerGas();
 
                 if (maxPriorityFeeError != null)
                 {
@@ -342,7 +351,16 @@ namespace OnchainClob.Trading
                     return;
                 }
 
-                var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
+                // get base fee per gas
+                var (baseFeePerGas, baseFeePerGasError) = _gasStation.GetBaseFeePerGas();
+
+                if (baseFeePerGasError != null)
+                {
+                    _logger?.LogError(maxPriorityFeeError, "[{symbol}] Get base fee per gas error", Symbol);
+                    return;
+                }
+
+                var maxFeePerGas = maxPriorityFeePerGas + 2 * baseFeePerGas;
 
                 foreach (var (batchGasLimit, batchRequests) in requests.SplitIntoSeveralBatches(_defaultGasLimits))
                 {
@@ -437,16 +455,7 @@ namespace OnchainClob.Trading
 
                     var expiration = DateTimeOffset.UtcNow.AddSeconds(DEFAULT_EXPIRED_SEC).ToUnixTimeSeconds();
 
-                    var (priceUpdateData, priceUpdateDataError) = await _pyth.GetPriceUpdateDataAsync();
-
-                    if (priceUpdateDataError != null)
-                    {
-                        _logger?.LogWarning(
-                            priceUpdateDataError,
-                            "[{symbol}] Get price update data error",
-                            Symbol);
-                    }
-
+                    var priceUpdateData = _pyth.GetPriceUpdateData();
                     var priceUpdateFee = priceUpdateData != null ? _pyth.PriceUpdateFee : 0;
 
                     var requestId = Guid.NewGuid().ToString();
@@ -550,8 +559,12 @@ namespace OnchainClob.Trading
 
         private void WebSocketClient_VaultTotalValuesUpdated(object sender, VaultTotalValuesEventArgs e)
         {
-            if (!e.VaultTotalValues.VaultAddress.Equals(_vaultContractAddress, StringComparison.InvariantCultureIgnoreCase))
+            if (!e.VaultTotalValues.VaultAddress.Equals(
+                _vaultContractAddress,
+                StringComparison.InvariantCultureIgnoreCase))
+            {
                 return;
+            }
 
             VaultTotalValuesChanged?.Invoke(this, e);
         }
