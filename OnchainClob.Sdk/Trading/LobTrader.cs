@@ -13,7 +13,7 @@ namespace OnchainClob.Trading
 {
     public class LobTrader : Trader
     {
-        private const long BASE_FEE_PER_GAS = 200_000_000_000;
+        private const long MIN_BASE_FEE_PER_GAS = 200_000_000_000;
         private readonly BigInteger UINT128_MAX_VALUE = (BigInteger.One << 128) - 1;
         private const long DEFAULT_EXPIRED_SEC = 60 * 60 * 24;
         private const int EIP1559_TRANSACTION_TYPE = 2;
@@ -22,6 +22,7 @@ namespace OnchainClob.Trading
         private readonly Lob _lob;
         private readonly BalanceManager _balanceManager;
         private readonly RpcClient _rpc;
+        private readonly GasStation _gasStation;
         private readonly GasLimits? _defaultGasLimits;
 
         public LobTrader(
@@ -31,6 +32,7 @@ namespace OnchainClob.Trading
             Lob lob,
             BalanceManager balanceManager,
             RpcClient rpc,
+            GasStation gasStation,
             GasLimits? defaultGasLimits = null,
             ILogger<LobTrader>? logger = null) : base(
                 symbolConfig,
@@ -45,6 +47,7 @@ namespace OnchainClob.Trading
             _balanceManager = balanceManager ?? throw new ArgumentNullException(nameof(balanceManager));
             _rpc = rpc ?? throw new ArgumentNullException(nameof(rpc));
             _defaultGasLimits = defaultGasLimits;
+            _gasStation = gasStation ?? throw new ArgumentNullException(nameof(gasStation));
         }
 
         protected override string UserAddress => _lob.Executor.Signer.GetAddress();
@@ -65,8 +68,7 @@ namespace OnchainClob.Trading
             var balances = _balanceManager.GetAvailableBalances(_symbolConfig);
 
             // get max priority fee per gas
-            var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
-                cancellationToken);
+            var (maxPriorityFeePerGas, maxPriorityFeeError) = _gasStation.GetMaxPriorityFeePerGas();
 
             if (maxPriorityFeeError != null)
             {
@@ -74,7 +76,16 @@ namespace OnchainClob.Trading
                 return;
             }
 
-            var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
+            // get base fee per gas
+            var (baseFeePerGas, baseFeePerGasError) = _gasStation.GetBaseFeePerGas();
+
+            if (baseFeePerGasError != null)
+            {
+                _logger?.LogError(maxPriorityFeeError, "[{symbol}] Get base fee per gas error", Symbol);
+                return;
+            }
+
+            var maxFeePerGas = maxPriorityFeePerGas + 2 * BigInteger.Max(baseFeePerGas, MIN_BASE_FEE_PER_GAS);
             var maxFee = maxFeePerGas * (_defaultGasLimits?.PlaceOrder ?? 0);
 
             if (balances.NativeBalance < maxFee)
@@ -174,8 +185,7 @@ namespace OnchainClob.Trading
                 var balance= _balanceManager.GetNativeBalance();
 
                 // get max priority fee per gas
-                var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
-                    cancellationToken);
+                var (maxPriorityFeePerGas, maxPriorityFeeError) = _gasStation.GetMaxPriorityFeePerGas();
 
                 if (maxPriorityFeeError != null)
                 {
@@ -183,7 +193,16 @@ namespace OnchainClob.Trading
                     return false;
                 }
 
-                var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
+                // get base fee per gas
+                var (baseFeePerGas, baseFeePerGasError) = _gasStation.GetBaseFeePerGas();
+
+                if (baseFeePerGasError != null)
+                {
+                    _logger?.LogError(maxPriorityFeeError, "[{symbol}] Get base fee per gas error", Symbol);
+                    return false;
+                }
+
+                var maxFeePerGas = maxPriorityFeePerGas + 2 * BigInteger.Max(baseFeePerGas, MIN_BASE_FEE_PER_GAS);
                 var maxFee = maxFeePerGas * (_defaultGasLimits?.ClaimOrder ?? 0);
 
                 if (balance < maxFee)
@@ -275,8 +294,7 @@ namespace OnchainClob.Trading
                 var balances = _balanceManager.GetAvailableBalances(_symbolConfig);
 
                 // get max priority fee per gas
-                var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
-                    cancellationToken);
+                var (maxPriorityFeePerGas, maxPriorityFeeError) = _gasStation.GetMaxPriorityFeePerGas();
 
                 if (maxPriorityFeeError != null)
                 {
@@ -284,7 +302,16 @@ namespace OnchainClob.Trading
                     return false;
                 }
 
-                var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
+                // get base fee per gas
+                var (baseFeePerGas, baseFeePerGasError) = _gasStation.GetBaseFeePerGas();
+
+                if (baseFeePerGasError != null)
+                {
+                    _logger?.LogError(maxPriorityFeeError, "[{symbol}] Get base fee per gas error", Symbol);
+                    return false;
+                }
+
+                var maxFeePerGas = maxPriorityFeePerGas + 2 * BigInteger.Max(baseFeePerGas, MIN_BASE_FEE_PER_GAS);
                 var maxFee = maxFeePerGas * (_defaultGasLimits?.ChangeOrder ?? 0);
 
                 if (balances.NativeBalance < maxFee)
@@ -422,8 +449,7 @@ namespace OnchainClob.Trading
                 }
 
                 // get max priority fee per gas
-                var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
-                    cancellationToken);
+                var (maxPriorityFeePerGas, maxPriorityFeeError) = _gasStation.GetMaxPriorityFeePerGas();
 
                 if (maxPriorityFeeError != null)
                 {
@@ -431,7 +457,16 @@ namespace OnchainClob.Trading
                     return;
                 }
 
-                var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
+                // get base fee per gas
+                var (baseFeePerGas, baseFeePerGasError) = _gasStation.GetBaseFeePerGas();
+
+                if (baseFeePerGasError != null)
+                {
+                    _logger?.LogError(maxPriorityFeeError, "[{symbol}] Get base fee per gas error", Symbol);
+                    return;
+                }
+
+                var maxFeePerGas = maxPriorityFeePerGas + 2 * BigInteger.Max(baseFeePerGas, MIN_BASE_FEE_PER_GAS);
 
                 foreach (var (batchGasLimit, batchRequests) in requests.SplitIntoSeveralBatches(_defaultGasLimits))
                 {
@@ -456,8 +491,6 @@ namespace OnchainClob.Trading
                         return;
                     }
 
-                    var nativeTokenValue = BigInteger.Zero;
-
                     if (qtys.Any(q => q > 0))
                     {
                         // check balances for both sides and calculate native token value
@@ -474,9 +507,7 @@ namespace OnchainClob.Trading
                                 ? _symbolConfig.TokenX
                                 : _symbolConfig.TokenY;
 
-                            var isFromNative = _symbolConfig.UseNative && fromToken.IsNative;
-
-                            if (!CheckBalance(side, balances, maxFee, previousLeaveAmount, inputAmount, isFromNative))
+                            if (!CheckBalance(side, balances, maxFee, previousLeaveAmount, inputAmount, isFromNative: false))
                             {
                                 // skip order places for side
                                 for (var i = selectedRequests.Count - 1; i >= 0; i--)
@@ -500,12 +531,6 @@ namespace OnchainClob.Trading
 
                                 inputAmount = 0;
                             }
-
-                            nativeTokenValue += isFromNative
-                                ? inputAmount > balances.GetLobBalanceBySide(side) + previousLeaveAmount
-                                    ? inputAmount - balances.GetLobBalanceBySide(side) - previousLeaveAmount
-                                    : 0
-                                : 0;
                         }
                     }
 
@@ -526,7 +551,6 @@ namespace OnchainClob.Trading
                         TransferTokens = transferTokens,
                         Expires = expiration,
 
-                        Value = nativeTokenValue,
                         ContractAddress = _symbolConfig.ContractAddress.ToLowerInvariant(),
                         MaxFeePerGas = maxFeePerGas,
                         MaxPriorityFeePerGas = maxPriorityFeePerGas,
@@ -582,8 +606,7 @@ namespace OnchainClob.Trading
             var balance = _balanceManager.GetNativeBalance();
 
             // get max priority fee per gas
-            var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
-                cancellationToken);
+            var (maxPriorityFeePerGas, maxPriorityFeeError) = _gasStation.GetMaxPriorityFeePerGas();
 
             if (maxPriorityFeeError != null)
             {
@@ -591,7 +614,16 @@ namespace OnchainClob.Trading
                 return;
             }
 
-            var maxFeePerGas = maxPriorityFeePerGas + BASE_FEE_PER_GAS;
+            // get base fee per gas
+            var (baseFeePerGas, baseFeePerGasError) = _gasStation.GetBaseFeePerGas();
+
+            if (baseFeePerGasError != null)
+            {
+                _logger?.LogError(maxPriorityFeeError, "[{symbol}] Get base fee per gas error", Symbol);
+                return;
+            }
+
+            var maxFeePerGas = maxPriorityFeePerGas + 2 * BigInteger.Max(baseFeePerGas, MIN_BASE_FEE_PER_GAS);
             var maxFee = maxFeePerGas * (_defaultGasLimits?.Deposit ?? 0);
 
             if (balance < maxFee)
