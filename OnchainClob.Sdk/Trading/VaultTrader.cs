@@ -7,6 +7,7 @@ using OnchainClob.Common;
 using OnchainClob.Services;
 using OnchainClob.Services.Pyth;
 using OnchainClob.Trading.Abstract;
+using OnchainClob.Trading.Events;
 using OnchainClob.Trading.Requests;
 using Revelium.Evm.Rpc;
 using System.Numerics;
@@ -15,6 +16,7 @@ namespace OnchainClob.Trading
 {
     public class VaultTrader : Trader, IVaultTrader
     {
+        private const long MIN_BASE_FEE_PER_GAS = 200_000_000_000;
         private readonly BigInteger UINT128_MAX_VALUE = (BigInteger.One << 128) - 1;
         private const long DEFAULT_EXPIRED_SEC = 60 * 60 * 24;
         private const int EIP1559_TRANSACTION_TYPE = 2;
@@ -65,6 +67,8 @@ namespace OnchainClob.Trading
             WsClient.VaultTotalValuesUpdated += WebSocketClient_VaultTotalValuesUpdated;
 
             _vault = vault ?? throw new ArgumentNullException(nameof(vault));
+            _vault.Executor.TxSuccessful += Executor_TxSuccessful;
+
             _balanceManager = balanceManager ?? throw new ArgumentNullException(nameof(balanceManager));
             _rpc = rpc ?? throw new ArgumentNullException(nameof(rpc));
             _pyth = pyth ?? throw new ArgumentNullException(nameof(pyth));
@@ -80,21 +84,7 @@ namespace OnchainClob.Trading
             bool transferExecutedTokens = false,
             CancellationToken cancellationToken = default)
         {
-            var fromToken = side == Side.Sell
-                ? _symbolConfig.TokenX
-                : _symbolConfig.TokenY;
-
-            var (balances, balancesError) = await _balanceManager.GetAvailableBalancesAsync(
-                _symbolConfig.ContractAddress,
-                fromToken.ContractAddress,
-                forceUpdate: true,
-                cancellationToken);
-
-            if (balancesError != null)
-            {
-                _logger?.LogError(balancesError, "[{symbol}] Get available balances error", Symbol);
-                return;
-            }
+            var balances = _balanceManager.GetAvailableBalances(_symbolConfig);
 
             // get max priority fee per gas
             var (maxPriorityFeePerGas, maxPriorityFeeError) = _gasStation.GetMaxPriorityFeePerGas();
@@ -114,7 +104,7 @@ namespace OnchainClob.Trading
                 return;
             }
 
-            var maxFeePerGas = maxPriorityFeePerGas + 2 * baseFeePerGas;
+            var maxFeePerGas = maxPriorityFeePerGas + 2 * BigInteger.Max(baseFeePerGas, MIN_BASE_FEE_PER_GAS);
             var maxFee = maxFeePerGas * (_defaultGasLimits?.PlaceOrder ?? 0);
 
             if (balances.NativeBalance < maxFee + _pyth.PriceUpdateFee)
@@ -211,15 +201,7 @@ namespace OnchainClob.Trading
                 }
 
                 // get native balance
-                var (balance, balanceError) = await _balanceManager.GetNativeBalanceAsync(
-                    forceUpdate: true,
-                    cancellationToken);
-
-                if (balanceError != null)
-                {
-                    _logger?.LogError(balanceError, "[{symbol}] Get native balance error", Symbol);
-                    return false;
-                }
+                var balance = _balanceManager.GetNativeBalance();
 
                 // get max priority fee per gas
                 var (maxPriorityFeePerGas, maxPriorityFeeError) = _gasStation.GetMaxPriorityFeePerGas();
@@ -239,7 +221,7 @@ namespace OnchainClob.Trading
                     return false;
                 }
 
-                var maxFeePerGas = maxPriorityFeePerGas + 2 * baseFeePerGas;
+                var maxFeePerGas = maxPriorityFeePerGas + 2 * BigInteger.Max(baseFeePerGas, MIN_BASE_FEE_PER_GAS);
                 var maxFee = maxFeePerGas * (_defaultGasLimits?.ClaimOrder ?? 0);
 
                 if (balance < maxFee)
@@ -360,7 +342,7 @@ namespace OnchainClob.Trading
                     return;
                 }
 
-                var maxFeePerGas = maxPriorityFeePerGas + 2 * baseFeePerGas;
+                var maxFeePerGas = maxPriorityFeePerGas + 2 * BigInteger.Max(baseFeePerGas, MIN_BASE_FEE_PER_GAS);
 
                 foreach (var (batchGasLimit, batchRequests) in requests.SplitIntoSeveralBatches(_defaultGasLimits))
                 {
@@ -383,17 +365,7 @@ namespace OnchainClob.Trading
                         string.Join(", ", qtys),
                         maxFee.ToString());
 
-                    var (balances, balancesError) = await _balanceManager.GetAvailableBalancesAsync(
-                        _symbolConfig.ContractAddress,
-                        tokenContractAddress: null,
-                        forceUpdate: true,
-                        cancellationToken);
-
-                    if (balancesError != null)
-                    {
-                        _logger?.LogError(balancesError, "[{symbol}] Get available balances error", Symbol);
-                        return;
-                    }
+                    var balances = _balanceManager.GetAvailableBalances(_symbolConfig);
 
                     if (balances.NativeBalance < maxFee + _pyth.PriceUpdateFee)
                     {
@@ -521,6 +493,46 @@ namespace OnchainClob.Trading
                             _canceledOrders.TryRemove(claimOrderRequest.OrderId, out _);
                 }
             }
+        }
+
+        private void Executor_TxSuccessful(object sender, ConfirmedEventArgs e)
+        {
+            var symbolEvents = e.Receipt.Logs
+                .Where(l =>
+                    l.Address.Equals(_symbolConfig.ContractAddress, StringComparison.InvariantCultureIgnoreCase))
+                .ToList();
+
+            if (symbolEvents.Count == 0)
+                return;
+
+            // update balances in background
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var (balances, error) = await _balanceManager.UpdateBalancesAsync(_symbolConfig);
+
+                    if (error != null)
+                    {
+                        _logger?.LogError(error, "[{symbol}] Update balances error", Symbol);
+                        return;
+                    }
+
+                    _logger?.LogInformation(
+                        "[{symbol}] Balances updated. " +
+                        "Native balance: {nativeBalance}. " +
+                        "Token X balance: {tokenXBalance}. " +
+                        "Token Y balance: {tokenYBalance}",
+                        Symbol,
+                        balances.NativeBalance.ToString(),
+                        balances.TokenBalanceX.ToString(),
+                        balances.TokenBalanceY.ToString());
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "[{symbol}] Update balances error", Symbol);
+                }
+            });
         }
 
         private bool CheckBalance(

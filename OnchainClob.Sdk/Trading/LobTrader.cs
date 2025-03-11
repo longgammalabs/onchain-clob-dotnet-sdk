@@ -3,6 +3,7 @@ using OnchainClob.Client;
 using OnchainClob.Client.Configuration;
 using OnchainClob.Client.Lob;
 using OnchainClob.Common;
+using OnchainClob.Services;
 using OnchainClob.Trading.Abstract;
 using OnchainClob.Trading.Requests;
 using Revelium.Evm.Rpc;
@@ -10,20 +11,7 @@ using System.Numerics;
 
 namespace OnchainClob.Trading
 {
-    public class LobTrader(
-        ISymbolConfig symbolConfig,
-        OnchainClobWsClient webSocketClient,
-        OnchainClobRestApi restApi,
-        Lob lob,
-        BalanceManager balanceManager,
-        RpcClient rpc,
-        GasLimits? defaultGasLimits = null,
-        ILogger<LobTrader>? logger = null) : Trader(
-            symbolConfig,
-            webSocketClient,
-            restApi,
-            lob.Executor,
-            logger)
+    public class LobTrader : Trader
     {
         private const long BASE_FEE_PER_GAS = 200_000_000_000;
         private readonly BigInteger UINT128_MAX_VALUE = (BigInteger.One << 128) - 1;
@@ -31,10 +19,33 @@ namespace OnchainClob.Trading
         private const int EIP1559_TRANSACTION_TYPE = 2;
         private const int ESTIMATE_GAS_RESERVE_IN_PERCENTS = 10;
 
-        private readonly Lob _lob = lob ?? throw new ArgumentNullException(nameof(lob));
-        private readonly BalanceManager _balanceManager = balanceManager ?? throw new ArgumentNullException(nameof(balanceManager));
-        private readonly RpcClient _rpc = rpc ?? throw new ArgumentNullException(nameof(rpc));
-        private readonly GasLimits? _defaultGasLimits = defaultGasLimits;
+        private readonly Lob _lob;
+        private readonly BalanceManager _balanceManager;
+        private readonly RpcClient _rpc;
+        private readonly GasLimits? _defaultGasLimits;
+
+        public LobTrader(
+            ISymbolConfig symbolConfig,
+            OnchainClobWsClient webSocketClient,
+            OnchainClobRestApi restApi,
+            Lob lob,
+            BalanceManager balanceManager,
+            RpcClient rpc,
+            GasLimits? defaultGasLimits = null,
+            ILogger<LobTrader>? logger = null) : base(
+                symbolConfig,
+                webSocketClient,
+                restApi,
+                lob.Executor,
+                logger)
+        {
+            _lob = lob ?? throw new ArgumentNullException(nameof(lob));
+            _lob.Executor.TxSuccessful += Executor_TxSuccessful;
+
+            _balanceManager = balanceManager ?? throw new ArgumentNullException(nameof(balanceManager));
+            _rpc = rpc ?? throw new ArgumentNullException(nameof(rpc));
+            _defaultGasLimits = defaultGasLimits;
+        }
 
         protected override string UserAddress => _lob.Executor.Signer.GetAddress();
 
@@ -51,17 +62,7 @@ namespace OnchainClob.Trading
                 ? _symbolConfig.TokenX
                 : _symbolConfig.TokenY;
 
-            var (balances, balancesError) = await _balanceManager.GetAvailableBalancesAsync(
-                _symbolConfig.ContractAddress,
-                fromToken.ContractAddress,
-                forceUpdate: true,
-                cancellationToken);
-
-            if (balancesError != null)
-            {
-                _logger?.LogError(balancesError, "[{symbol}] Get available balances error", Symbol);
-                return;
-            }
+            var balances = _balanceManager.GetAvailableBalances(_symbolConfig);
 
             // get max priority fee per gas
             var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
@@ -170,15 +171,7 @@ namespace OnchainClob.Trading
                 }
 
                 // get native balance
-                var (balance, balanceError) = await _balanceManager.GetNativeBalanceAsync(
-                    forceUpdate: true,
-                    cancellationToken);
-
-                if (balanceError != null)
-                {
-                    _logger?.LogError(balanceError, "[{symbol}] Get native balance error", Symbol);
-                    return false;
-                }
+                var balance= _balanceManager.GetNativeBalance();
 
                 // get max priority fee per gas
                 var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
@@ -279,17 +272,7 @@ namespace OnchainClob.Trading
                     ? _symbolConfig.TokenX
                     : _symbolConfig.TokenY;
 
-                var (balances, balancesError) = await _balanceManager.GetAvailableBalancesAsync(
-                    _symbolConfig.ContractAddress,
-                    fromToken.ContractAddress,
-                    forceUpdate: true,
-                    cancellationToken);
-
-                if (balancesError != null)
-                {
-                    _logger?.LogError(balancesError, "[{symbol}] Get available balances error", Symbol);
-                    return false;
-                }
+                var balances = _balanceManager.GetAvailableBalances(_symbolConfig);
 
                 // get max priority fee per gas
                 var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
@@ -459,17 +442,7 @@ namespace OnchainClob.Trading
                     var qtys = selectedRequests.Select(r => r.Qty).ToList();
                     var maxFee = maxFeePerGas * batchGasLimit ?? 0;
 
-                    var (balances, balancesError) = await _balanceManager.GetAvailableBalancesAsync(
-                        _symbolConfig.ContractAddress,
-                        tokenContractAddress: null,
-                        forceUpdate: true,
-                        cancellationToken);
-
-                    if (balancesError != null)
-                    {
-                        _logger?.LogError(balancesError, "Get available balances error");
-                        return;
-                    }
+                    var balances = _balanceManager.GetAvailableBalances(_symbolConfig);
 
                     if (balances.NativeBalance < maxFee)
                     {
@@ -606,15 +579,7 @@ namespace OnchainClob.Trading
             CancellationToken cancellationToken = default)
         {
             // get native balance
-            var (balance, balanceError) = await _balanceManager.GetNativeBalanceAsync(
-                forceUpdate: true,
-                cancellationToken);
-
-            if (balanceError != null)
-            {
-                _logger?.LogError(balanceError, "[{symbol}] Get native balance error", Symbol);
-                return;
-            }
+            var balance = _balanceManager.GetNativeBalance();
 
             // get max priority fee per gas
             var (maxPriorityFeePerGas, maxPriorityFeeError) = await _rpc.GetMaxPriorityFeePerGasAsync(
@@ -657,6 +622,50 @@ namespace OnchainClob.Trading
                 TransactionType = EIP1559_TRANSACTION_TYPE,
                 ChainId = _rpc.ChainId
             }, cancellationToken);
+        }
+
+        private void Executor_TxSuccessful(object sender, Events.ConfirmedEventArgs e)
+        {
+            var symbolEvents = e.Receipt.Logs
+                .Where(l =>
+                    l.Address.Equals(_symbolConfig.ContractAddress, StringComparison.InvariantCultureIgnoreCase))
+                .ToList();
+
+            if (symbolEvents.Count == 0)
+                return;
+
+            // update balances in background
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var (balances, error) = await _balanceManager.UpdateBalancesAsync(_symbolConfig);
+
+                    if (error != null)
+                    {
+                        _logger?.LogError(error, "[{symbol}] Update balances error", Symbol);
+                        return;
+                    }
+
+                    _logger?.LogInformation(
+                        "[{symbol}] Balances updated. " +
+                        "Native balance: {nativeBalance}. " +
+                        "Token X balance: {tokenXBalance}. " +
+                        "Token Y balance: {tokenYBalance}. " +
+                        "Lob balance X: {lobX}. " +
+                        "Lob balance Y: {lobY}",
+                        Symbol,
+                        balances.NativeBalance.ToString(),
+                        balances.TokenBalanceX.ToString(),
+                        balances.TokenBalanceY.ToString(),
+                        balances.LobBalanceX.ToString(),
+                        balances.LobBalanceY.ToString());
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "[{symbol}] Update balances error", Symbol);
+                }
+            });
         }
 
         protected override void SubscribeToChannels()
