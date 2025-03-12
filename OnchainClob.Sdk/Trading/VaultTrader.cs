@@ -1,4 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
+using Nethereum.Contracts;
+using OnchainClob.Abi.Lob.Events;
+using OnchainClob.Abi.Pyth;
 using OnchainClob.Client;
 using OnchainClob.Client.Configuration;
 using OnchainClob.Client.Events;
@@ -159,9 +162,6 @@ namespace OnchainClob.Trading
                 TransactionType = EIP1559_TRANSACTION_TYPE,
                 ChainId = _rpc.ChainId
             }, cancellationToken);
-
-            if (priceUpdateData != null)
-                _pyth.LastContractUpdateTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
             var pendingOrder = new Order(
                 OrderId: requestId,
@@ -462,9 +462,6 @@ namespace OnchainClob.Trading
                         ChainId = _rpc.ChainId
                     }, cancellationToken);
 
-                    if (priceUpdateData != null)
-                        _pyth.LastContractUpdateTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-
                     success = true;
 
                     var (pendingOrders, pendingCancellationRequests) = CreatePendingOrdersAndCancellationRequests(
@@ -503,6 +500,20 @@ namespace OnchainClob.Trading
 
         private void Executor_TxSuccessful(object sender, ConfirmedEventArgs e)
         {
+            var hasPriceFeedUpdates = e.Receipt.Logs
+                .Where(l => l.Address.Equals(_pyth.PythContract, StringComparison.InvariantCultureIgnoreCase))
+                .Where(l =>
+                    l.Topics[0].Equals($"0x{PriceFeedUpdateEventDTO.SignatureHash}", StringComparison.InvariantCultureIgnoreCase))
+                .ToList()
+                .Any();
+
+            if (hasPriceFeedUpdates)
+            {
+                const int TX_CONFIRMATION_DELAY_SEC = 5;
+                _pyth.LastContractUpdateTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - TX_CONFIRMATION_DELAY_SEC;
+                _logger?.LogInformation("Update Pyth LastContractUpdateTime to {time}", _pyth.LastContractUpdateTime);
+            }
+
             var symbolEvents = e.Receipt.Logs
                 .Where(l =>
                     l.Address.Equals(_symbolConfig.ContractAddress, StringComparison.InvariantCultureIgnoreCase))

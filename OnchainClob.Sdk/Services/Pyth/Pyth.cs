@@ -5,6 +5,7 @@ using System.Numerics;
 namespace OnchainClob.Services.Pyth
 {
     public class Pyth(
+        string pythContract,
         string[] priceFeedIds,
         PythHermesApi pythHermesApi,
         BigInteger priceUpdateFeePerFeed,
@@ -24,7 +25,8 @@ namespace OnchainClob.Services.Pyth
         private bool _isRunning;
         private byte[][]? _priceUpdateData;
 
-        public string[] PriceFeedIds { get; init; } = priceFeedIds;
+        public string PythContract { get; init; } = pythContract ?? throw new ArgumentNullException(nameof(pythContract));
+        public string[] PriceFeedIds { get; init; } = priceFeedIds ?? throw new ArgumentNullException(nameof(priceFeedIds));
         public BigInteger PriceUpdateFeePerFeed { get; init; } = priceUpdateFeePerFeed;
         public BigInteger PriceUpdateFee { get; init; } = priceUpdateFeePerFeed * priceFeedIds.Length;
         public long LastUpdateTime { get; private set; }
