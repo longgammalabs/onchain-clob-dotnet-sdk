@@ -160,6 +160,9 @@ namespace OnchainClob.Trading
                 ChainId = _rpc.ChainId
             }, cancellationToken);
 
+            if (priceUpdateData != null)
+                _pyth.LastContractUpdateTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
             var pendingOrder = new Order(
                 OrderId: requestId,
                 Price: price,
@@ -458,6 +461,9 @@ namespace OnchainClob.Trading
                         TransactionType = EIP1559_TRANSACTION_TYPE,
                         ChainId = _rpc.ChainId
                     }, cancellationToken);
+
+                    if (priceUpdateData != null)
+                        _pyth.LastContractUpdateTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
                     success = true;
 

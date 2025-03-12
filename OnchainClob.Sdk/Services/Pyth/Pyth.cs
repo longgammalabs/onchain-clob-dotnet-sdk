@@ -9,12 +9,14 @@ namespace OnchainClob.Services.Pyth
         PythHermesApi pythHermesApi,
         BigInteger priceUpdateFeePerFeed,
         TimeSpan updateInterval,
+        TimeSpan priceValidityPeriodSeconds,
         ILogger<Pyth>? logger = null)
     {
         public event EventHandler<EventArgs>? OnUpdate;
 
         private readonly PythHermesApi _pythHermesApi = pythHermesApi;
         private readonly TimeSpan _updateInterval = updateInterval;
+        private readonly TimeSpan _priceValidityPeriodSeconds = priceValidityPeriodSeconds;
         private readonly ILogger<Pyth>? _logger = logger;
         private readonly object _startStopLock = new();
         private readonly object _lock = new();
@@ -25,7 +27,8 @@ namespace OnchainClob.Services.Pyth
         public string[] PriceFeedIds { get; init; } = priceFeedIds;
         public BigInteger PriceUpdateFeePerFeed { get; init; } = priceUpdateFeePerFeed;
         public BigInteger PriceUpdateFee { get; init; } = priceUpdateFeePerFeed * priceFeedIds.Length;
-        public long LastPriceUpdateTime { get; private set; }
+        public long LastUpdateTime { get; private set; }
+        public long LastContractUpdateTime { get; set; }
 
         public void Start()
         {
@@ -57,7 +60,14 @@ namespace OnchainClob.Services.Pyth
         {
             lock (_lock)
             {
-                return _priceUpdateData;
+                if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - LastContractUpdateTime > _priceValidityPeriodSeconds.TotalSeconds)
+                {
+                    return _priceUpdateData;
+                }
+                else
+                {
+                    return null;
+                }
             }
         }
 
@@ -93,7 +103,7 @@ namespace OnchainClob.Services.Pyth
                 return;
             }
 
-            LastPriceUpdateTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            LastUpdateTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
             lock (_lock)
             {
