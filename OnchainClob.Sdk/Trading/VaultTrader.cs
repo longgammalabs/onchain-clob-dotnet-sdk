@@ -1,6 +1,4 @@
 ﻿using Microsoft.Extensions.Logging;
-using Nethereum.Contracts;
-using OnchainClob.Abi.Lob.Events;
 using OnchainClob.Abi.Pyth;
 using OnchainClob.Client;
 using OnchainClob.Client.Configuration;
