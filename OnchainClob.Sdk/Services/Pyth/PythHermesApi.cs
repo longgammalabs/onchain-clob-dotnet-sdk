@@ -15,24 +15,39 @@ namespace OnchainClob.Services.Pyth
             IEnumerable<string> priceFeedIds,
             CancellationToken cancellationToken = default)
         {
-            var idsQuery = string.Join("&", priceFeedIds.Select(id => $"ids[]={id}").ToList());
-            var response = await _httpClient.GetAsync(
-                Url.Combine(_baseUrl, $"v2/updates/price/latest?{idsQuery}"),
-                cancellationToken);
+            try
+            {
+                var idsQuery = string.Join("&", priceFeedIds.Select(id => $"ids[]={id}").ToList());
+                var response = await _httpClient.GetAsync(
+                    Url.Combine(_baseUrl, $"v2/updates/price/latest?{idsQuery}"),
+                    cancellationToken);
 
-            if (!response.IsSuccessStatusCode)
-                return new Error((int)response.StatusCode, response.ReasonPhrase);
+                if (!response.IsSuccessStatusCode)
+                    return new Error((int)response.StatusCode, response.ReasonPhrase);
 
-            var content = await response.Content.ReadAsStringAsync();
-            var json = JsonDocument.Parse(content);
-            var data = json.RootElement
-                .GetProperty("binary")
-                .GetProperty("data")
-                .EnumerateArray()
-                .Select(e => Hex.FromString(e.GetString()!))
-                .ToArray();
+                var content = await response.Content.ReadAsStringAsync();
+                var json = JsonDocument.Parse(content);
+                var data = json.RootElement
+                    .GetProperty("binary")
+                    .GetProperty("data")
+                    .EnumerateArray()
+                    .Select(e => Hex.FromString(e.GetString()!))
+                    .ToArray();
 
-            return data;
+                return data;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (TaskCanceledException)
+            {
+                return new Error("Pyth Hermes API request timed out");
+            }
+            catch (Exception ex)
+            {
+                return new Error(ex.Message, ex);
+            }
         }
     }
 }

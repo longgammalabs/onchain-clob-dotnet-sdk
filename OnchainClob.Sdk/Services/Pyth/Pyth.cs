@@ -83,9 +83,10 @@ namespace OnchainClob.Services.Pyth
                     await Task.Delay(_updateInterval, cancellationToken);
                 }
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 // expected
+                _logger?.LogInformation("Pyth price updater stopped");
             }
             catch (Exception ex)
             {
