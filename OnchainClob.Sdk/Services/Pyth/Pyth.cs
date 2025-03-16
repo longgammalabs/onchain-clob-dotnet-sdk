@@ -24,13 +24,12 @@ namespace OnchainClob.Services.Pyth
         private CancellationTokenSource? _cts;
         private bool _isRunning;
         private byte[][]? _priceUpdateData;
+        private long _lastContractUpdateTime;
 
         public string PythContract { get; init; } = pythContract ?? throw new ArgumentNullException(nameof(pythContract));
         public string[] PriceFeedIds { get; init; } = priceFeedIds ?? throw new ArgumentNullException(nameof(priceFeedIds));
         public BigInteger PriceUpdateFeePerFeed { get; init; } = priceUpdateFeePerFeed;
         public BigInteger PriceUpdateFee { get; init; } = priceUpdateFeePerFeed * priceFeedIds.Length;
-        public long LastUpdateTime { get; private set; }
-        public long LastContractUpdateTime { get; set; }
 
         public void Start()
         {
@@ -62,13 +61,31 @@ namespace OnchainClob.Services.Pyth
         {
             lock (_lock)
             {
-                if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - LastContractUpdateTime > _priceValidityPeriodSeconds.TotalSeconds)
+                if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - _lastContractUpdateTime > _priceValidityPeriodSeconds.TotalSeconds)
                 {
                     return _priceUpdateData;
                 }
                 else
                 {
                     return null;
+                }
+            }
+        }
+
+        public long LastContractUpdateTime
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _lastContractUpdateTime;
+                }
+            }
+            set
+            {
+                lock (_lock)
+                {
+                    _lastContractUpdateTime = value;
                 }
             }
         }
@@ -85,20 +102,23 @@ namespace OnchainClob.Services.Pyth
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                // expected
                 _logger?.LogInformation("Pyth price updater stopped");
             }
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "Error updating Pyth prices");
             }
+
+            _logger?.LogInformation("Pyth DoWorkAsync exit");
         }
 
-        private async Task UpdateAsync(CancellationToken cancellationToken = default)
+        private async Task UpdateAsync(CancellationToken ct = default)
         {
+            _logger?.LogDebug("Pyth UpdateAsync started");
+
             var (priceUpdateData, error) = await _pythHermesApi.GetPriceUpdateDataAsync(
                 PriceFeedIds,
-                cancellationToken);
+                ct);
 
             if (error != null)
             {
@@ -106,7 +126,7 @@ namespace OnchainClob.Services.Pyth
                 return;
             }
 
-            LastUpdateTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            _logger?.LogDebug("Update priceUpdateData");
 
             lock (_lock)
             {

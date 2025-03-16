@@ -17,10 +17,14 @@ namespace OnchainClob.Services.Pyth
         {
             try
             {
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                cts.CancelAfter(_httpClient.Timeout);
+
                 var idsQuery = string.Join("&", priceFeedIds.Select(id => $"ids[]={id}").ToList());
-                var response = await _httpClient.GetAsync(
+
+                using var response = await _httpClient.GetAsync(
                     Url.Combine(_baseUrl, $"v2/updates/price/latest?{idsQuery}"),
-                    cancellationToken);
+                    cts.Token);
 
                 if (!response.IsSuccessStatusCode)
                     return new Error((int)response.StatusCode, response.ReasonPhrase);
@@ -40,13 +44,13 @@ namespace OnchainClob.Services.Pyth
             {
                 throw;
             }
-            catch (TaskCanceledException)
+            catch (OperationCanceledException)
             {
                 return new Error("Pyth Hermes API request timed out");
             }
             catch (Exception ex)
             {
-                return new Error(ex.Message, ex);
+                return new Error("Pyth Hermes API unknown error", ex);
             }
         }
     }
