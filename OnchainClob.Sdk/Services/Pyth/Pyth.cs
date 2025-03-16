@@ -40,7 +40,8 @@ namespace OnchainClob.Services.Pyth
 
                 _cts = new CancellationTokenSource();
                 _isRunning = true;
-                _ = DoWorkAsync(_cts.Token);
+
+                _ = Task.Run(async () => await DoWorkAsync(_cts.Token));
             }
         }
 
