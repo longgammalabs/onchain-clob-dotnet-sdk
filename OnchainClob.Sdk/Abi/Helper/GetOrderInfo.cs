@@ -11,7 +11,7 @@ namespace OnchainClob.Abi.Helper
         public bool IsAsk { get; set; }
 
         [Parameter("uint72", "price", 2)]
-        public ulong Price { get; set; }
+        public BigInteger Price { get; set; }
 
         [Parameter("uint128", "total_shares", 3)]
         public BigInteger TotalShares { get; set; }

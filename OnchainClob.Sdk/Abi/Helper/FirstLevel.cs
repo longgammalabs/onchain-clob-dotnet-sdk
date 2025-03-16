@@ -1,15 +1,16 @@
 ﻿using Nethereum.ABI.FunctionEncoding.Attributes;
 using Nethereum.Contracts;
+using System.Numerics;
 
 namespace OnchainClob.Abi.Helper
 {
     [FunctionOutput]
     public class FirstLevelOutputDTO : IFunctionOutputDTO
     {
-        [Parameter("uint56", "bid", 1)]
-        public ulong Bid { get; set; }
-        [Parameter("uint56", "ask", 2)]
-        public ulong Ask { get; set; }
+        [Parameter("uint72", "bid", 1)]
+        public BigInteger Bid { get; set; }
+        [Parameter("uint72", "ask", 2)]
+        public BigInteger Ask { get; set; }
     }
 
 
