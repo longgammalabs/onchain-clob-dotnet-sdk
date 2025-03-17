@@ -28,27 +28,25 @@ namespace OnchainClob.Services
             side == Side.Sell ? LobBalanceX : LobBalanceY;
     }
 
-    public class BalanceManager
+    public class LobBalanceManagerOptions
     {
-        private readonly RpcClient _rpc;
-        private readonly string _fromAddress;
-        private readonly string _vaultAddress;
+        public string FromAddress { get; init; } = default!;
+        public string VaultAddress { get; init; } = default!;
+    }
+
+    public class LobBalanceManager(
+        LobBalanceManagerOptions options,
+        RpcClient rpc)
+    {
+        private readonly RpcClient _rpc = rpc ?? throw new ArgumentNullException(nameof(rpc));
+        private readonly string _fromAddress = options.FromAddress ?? throw new ArgumentNullException(nameof(options.FromAddress));
+        private readonly string _vaultAddress = options.VaultAddress ?? throw new ArgumentNullException(nameof(options.VaultAddress));
 
         private readonly ConcurrentDictionary<string, BigInteger> _tokenBalances = [];
         private readonly ConcurrentDictionary<string, BigInteger> _lobBalancesTokenX = [];
         private readonly ConcurrentDictionary<string, BigInteger> _lobBalancesTokenY = [];
         private readonly object _nativeBalanceSync = new();
         private BigInteger _nativeBalance;
-
-        public BalanceManager(
-            RpcClient rpc,
-            string fromAddress,
-            string vaultAddress)
-        {
-            _rpc = rpc ?? throw new ArgumentNullException(nameof(rpc));
-            _fromAddress = fromAddress ?? throw new ArgumentNullException(nameof(fromAddress));
-            _vaultAddress = vaultAddress ?? throw new ArgumentNullException(nameof(vaultAddress));
-        }
 
         public BigInteger GetNativeBalance()
         {

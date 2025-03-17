@@ -28,7 +28,7 @@ namespace OnchainClob.Trading
         private readonly string _vaultContractAddress;
         private readonly string _batchContractAddress;
         private readonly Vault _vault;
-        private readonly BalanceManager _balanceManager;
+        private readonly LobBalanceManager _balanceManager;
         private readonly RpcClient _rpc;
         private readonly Pyth _pyth;
         private readonly GasStation _gasStation;
@@ -46,7 +46,7 @@ namespace OnchainClob.Trading
             OnchainClobWsClient webSocketClient,
             OnchainClobRestApi restApi,
             Vault vault,
-            BalanceManager balanceManager,
+            LobBalanceManager balanceManager,
             RpcClient rpc,
             Pyth pyth,
             GasStation gasStation,

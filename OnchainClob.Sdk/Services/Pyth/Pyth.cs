@@ -103,19 +103,19 @@ namespace OnchainClob.Services.Pyth
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                _logger?.LogInformation("Pyth price updater stopped");
+                _logger?.LogInformation("Pyth worker cancelled");
             }
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "Error updating Pyth prices");
             }
 
-            _logger?.LogInformation("Pyth DoWorkAsync exit");
+            _logger?.LogInformation("Pyth worker stopped");
         }
 
         private async Task UpdateAsync(CancellationToken ct = default)
         {
-            _logger?.LogDebug("Pyth UpdateAsync started");
+            _logger?.LogDebug("Updating Pyth prices");
 
             var (priceUpdateData, error) = await _pythHermesApi.GetPriceUpdateDataAsync(
                 PriceFeedIds,
@@ -126,8 +126,6 @@ namespace OnchainClob.Services.Pyth
                 _logger?.LogError(error, "Error getting price update data");
                 return;
             }
-
-            _logger?.LogDebug("Update priceUpdateData");
 
             lock (_lock)
             {

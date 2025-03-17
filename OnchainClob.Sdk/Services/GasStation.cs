@@ -1,4 +1,5 @@
 ﻿using Incendium;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Nethereum.Hex.HexTypes;
 using OnchainClob.Common;
@@ -16,15 +17,20 @@ namespace OnchainClob.Services
         public BigInteger MaxPriorityFeePerGas { get; set; }
     }
 
+    public class GasStationOptions
+    {
+        public int UpdateIntervalMs { get; init; } = 10000;
+    }
+
     public class GasStation(
+        GasStationOptions options,
         RpcClient rpc,
-        TimeSpan updateInterval,
-        ILogger<GasStation>? logger = null)
+        ILogger<GasStation>? logger = null) : IHostedService
     {
         public event EventHandler<FeePerGasEventArgs>? OnFeePerGasUpdated;
 
         private readonly RpcClient _rpc = rpc;
-        private readonly TimeSpan _updateInterval = updateInterval;
+        private readonly TimeSpan _updateInterval = TimeSpan.FromMilliseconds(options.UpdateIntervalMs);
         private readonly ILogger<GasStation>? _logger = logger;
         private readonly object _startStopLock = new();
         private readonly object _lock = new();
@@ -33,30 +39,35 @@ namespace OnchainClob.Services
         private CancellationTokenSource? _cts;
         private bool _isRunning;
 
-        public void Start()
+        public Task StartAsync(CancellationToken cancellationToken)
         {
             lock (_startStopLock)
             {
                 if (_isRunning)
-                    return;
+                    return Task.CompletedTask;
 
                 _cts = new CancellationTokenSource();
                 _isRunning = true;
-                _ = DoWorkAsync(_cts.Token);
+
+                _ = Task.Run(async () => await DoWorkAsync(_cts.Token), _cts.Token);
             }
+
+            return Task.CompletedTask;
         }
 
-        public void Stop()
+        public Task StopAsync(CancellationToken cancellationToken)
         {
             lock (_startStopLock)
             {
                 if (!_isRunning)
-                    return;
+                    return Task.CompletedTask;
 
                 _cts?.Cancel();
                 _cts = null;
                 _isRunning = false;
             }
+
+            return Task.CompletedTask;
         }
 
         public Result<BigInteger> GetBaseFeePerGas()

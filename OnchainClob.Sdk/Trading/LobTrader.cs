@@ -20,7 +20,7 @@ namespace OnchainClob.Trading
         private const int ESTIMATE_GAS_RESERVE_IN_PERCENTS = 10;
 
         private readonly Lob _lob;
-        private readonly BalanceManager _balanceManager;
+        private readonly LobBalanceManager _balanceManager;
         private readonly RpcClient _rpc;
         private readonly GasStation _gasStation;
         private readonly GasLimits? _defaultGasLimits;
@@ -30,7 +30,7 @@ namespace OnchainClob.Trading
             OnchainClobWsClient webSocketClient,
             OnchainClobRestApi restApi,
             Lob lob,
-            BalanceManager balanceManager,
+            LobBalanceManager balanceManager,
             RpcClient rpc,
             GasStation gasStation,
             GasLimits? defaultGasLimits = null,
