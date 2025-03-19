@@ -7,6 +7,7 @@ using OnchainClob.Services;
 using OnchainClob.Trading.Abstract;
 using OnchainClob.Trading.Requests;
 using Revelium.Evm.Rpc;
+using Revelium.Evm.Services;
 using System.Numerics;
 
 namespace OnchainClob.Trading

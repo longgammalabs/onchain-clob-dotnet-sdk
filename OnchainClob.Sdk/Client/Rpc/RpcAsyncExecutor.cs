@@ -1,10 +1,12 @@
 ﻿using Microsoft.Extensions.Logging;
 using OnchainClob.Client.Abstract;
+using OnchainClob.Common;
 using OnchainClob.Trading.Events;
 using Revelium.Evm.Common;
 using Revelium.Evm.Crypto.Abstract;
 using Revelium.Evm.Rpc;
 using Revelium.Evm.Rpc.Models;
+using Revelium.Evm.Services;
 using ErrorEventArgs = OnchainClob.Trading.Events.ErrorEventArgs;
 
 namespace OnchainClob.Client.Rpc
@@ -21,6 +23,7 @@ namespace OnchainClob.Client.Rpc
         private readonly RpcClient _rpc;
         private readonly ISigner _signer;
         private readonly RpcTransactionTracker _tracker;
+        private readonly NonceManager _nonceManager;
         private readonly int _txConfirmationCheckIntervalMs;
         private readonly ILogger<RpcAsyncExecutor>? _logger;
 
@@ -59,6 +62,7 @@ namespace OnchainClob.Client.Rpc
             RpcClient rpc,
             ISigner signer,
             RpcTransactionTracker tracker,
+            NonceManager nonceManager,
             int txConfirmationCheckIntervalMs = TX_CONFIRMATION_CHECK_INTERVAL_MS,
             ILogger<RpcAsyncExecutor>? logger = null)
         {
@@ -71,6 +75,7 @@ namespace OnchainClob.Client.Rpc
             _tracker.ErrorReceived += Tracker_ErrorReceived;
 
             _rpc = rpc ?? throw new ArgumentNullException(nameof(rpc));
+            _nonceManager = nonceManager ?? throw new ArgumentNullException(nameof(nonceManager));
         }
 
         /// <summary>
@@ -85,9 +90,9 @@ namespace OnchainClob.Client.Rpc
             var (txId, error) = await _rpc.SignAndSendTransactionAsync(
                 requestParams.Tx,
                 _signer,
+                _nonceManager,
                 requestParams.EstimateGas,
                 requestParams.EstimateGasReserveInPercent,
-                networkId: null,
                 logger: _logger,
                 cancellationToken);
 
