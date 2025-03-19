@@ -2,11 +2,12 @@
 using OnchainClob.Client.Abstract;
 using OnchainClob.Common;
 using OnchainClob.Trading.Events;
+using Revelium.Evm.Common;
 using Revelium.Evm.Crypto.Abstract;
 using Revelium.Evm.Rpc;
 using Revelium.Evm.Rpc.Models;
+using Revelium.Evm.Services;
 using ErrorEventArgs = OnchainClob.Trading.Events.ErrorEventArgs;
-using NonceManager = OnchainClob.Services.NonceManager;
 
 namespace OnchainClob.Client.Rpc
 {

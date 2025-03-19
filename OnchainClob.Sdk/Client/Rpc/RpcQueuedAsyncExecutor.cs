@@ -4,6 +4,7 @@ using OnchainClob.Trading.Events;
 using Revelium.Evm.Common.Events;
 using Revelium.Evm.Crypto.Abstract;
 using Revelium.Evm.Rpc;
+using Revelium.Evm.Services;
 using System.Collections.Concurrent;
 using ErrorEventArgs = OnchainClob.Trading.Events.ErrorEventArgs;
 using TransactionReceipt = Revelium.Evm.Rpc.Models.TransactionReceipt;
@@ -19,7 +20,6 @@ namespace OnchainClob.Client.Rpc
         private const int RPC_QUEUE_SIZE = 16;
         private const int TRACKER_UPDATE_INTERVAL_SEC = 3;
 
-        private readonly RpcClient _rpc;
         private readonly RpcCallSequencer _sequencer;
         private readonly ISigner _signer;
         private readonly RpcTransactionTracker _tracker;
@@ -53,12 +53,14 @@ namespace OnchainClob.Client.Rpc
         /// </summary>
         /// <param name="rpc">The RPC client.</param>
         /// <param name="signer">The signer for transaction signing.</param>
+        /// <param name="nonceManager">Nonce manager.</param>
         /// <param name="tracker">The transaction tracker for monitoring transaction status.</param>
         /// <param name="logger">Optional logger.</param>
         /// <exception cref="ArgumentNullException">Thrown when rpc, signer, or tracker is null.</exception>
         public RpcQueuedAsyncExecutor(
             RpcClient rpc,
             ISigner signer,
+            NonceManager nonceManager,
             RpcTransactionTracker tracker,
             ILogger<RpcQueuedAsyncExecutor>? logger = null)
         {
@@ -69,8 +71,7 @@ namespace OnchainClob.Client.Rpc
             _tracker.ReceiptReceived += Tracker_ReceiptReceived;
             _tracker.ErrorReceived += Tracker_ErrorReceived;
 
-            _rpc = rpc ?? throw new ArgumentNullException(nameof(rpc));
-            _sequencer = RpcCallSequencer.GetOrAddInstance(_rpc, _signer, RPC_QUEUE_SIZE);
+            _sequencer = RpcCallSequencer.GetOrAddInstance(rpc, _signer, nonceManager, RPC_QUEUE_SIZE);
         }
 
         /// <summary>
