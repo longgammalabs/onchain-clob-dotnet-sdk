@@ -4,6 +4,7 @@
     {
         string ContractAddress { get; }
         string Symbol { get; }
+        string BinanceSymbol { get; }
         int ScallingFactorX { get; }
         int ScallingFactorY { get; }
         TokenConfig TokenX { get; }
