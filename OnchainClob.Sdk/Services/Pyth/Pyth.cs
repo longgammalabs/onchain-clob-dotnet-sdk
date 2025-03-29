@@ -1,23 +1,28 @@
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using OnchainClob.Common;
 using System.Numerics;
 
 namespace OnchainClob.Services.Pyth
 {
+    public class PythOptions
+    {
+        public string ContractAddress { get; init; } = default!;
+        public string[] FeedIds { get; init; } = default!;
+        public long UpdateFeePerFeed { get; init; } = default!;
+        public int UpdateIntervalMs { get; init; } = default!;
+        public int PriceValidityPeriodSec { get; init; } = default!;
+    }
+
     public class Pyth(
-        string pythContract,
-        string[] priceFeedIds,
+        PythOptions options,
         PythHermesApi pythHermesApi,
-        BigInteger priceUpdateFeePerFeed,
-        TimeSpan updateInterval,
-        TimeSpan priceValidityPeriodSeconds,
-        ILogger<Pyth>? logger = null)
+        ILogger<Pyth>? logger = null) : IHostedService
     {
         public event EventHandler<EventArgs>? OnUpdate;
 
+        private readonly PythOptions _options = options ?? throw new ArgumentNullException(nameof(options));
         private readonly PythHermesApi _pythHermesApi = pythHermesApi;
-        private readonly TimeSpan _updateInterval = updateInterval;
-        private readonly TimeSpan _priceValidityPeriodSeconds = priceValidityPeriodSeconds;
         private readonly ILogger<Pyth>? _logger = logger;
         private readonly object _startStopLock = new();
         private readonly object _lock = new();
@@ -26,43 +31,47 @@ namespace OnchainClob.Services.Pyth
         private byte[][]? _priceUpdateData;
         private long _lastContractUpdateTime;
 
-        public string PythContract { get; init; } = pythContract ?? throw new ArgumentNullException(nameof(pythContract));
-        public string[] PriceFeedIds { get; init; } = priceFeedIds ?? throw new ArgumentNullException(nameof(priceFeedIds));
-        public BigInteger PriceUpdateFeePerFeed { get; init; } = priceUpdateFeePerFeed;
-        public BigInteger PriceUpdateFee { get; init; } = priceUpdateFeePerFeed * priceFeedIds.Length;
+        public string PythContract => _options.ContractAddress;
+        public string[] PriceFeedIds => _options.FeedIds;
+        public BigInteger PriceUpdateFeePerFeed => _options.UpdateFeePerFeed;
+        public BigInteger PriceUpdateFee => _options.UpdateFeePerFeed * _options.FeedIds.Length;
 
-        public void Start()
+        public Task StartAsync(CancellationToken ct)
         {
             lock (_startStopLock)
             {
                 if (_isRunning)
-                    return;
+                    return Task.CompletedTask;
 
                 _cts = new CancellationTokenSource();
                 _isRunning = true;
 
                 _ = Task.Run(async () => await DoWorkAsync(_cts.Token));
             }
+
+            return Task.CompletedTask;
         }
 
-        public void Stop()
+        public Task StopAsync(CancellationToken ct)
         {
             lock (_startStopLock)
             {
                 if (!_isRunning)
-                    return;
+                    return Task.CompletedTask;
 
                 _cts?.Cancel();
                 _cts = null;
                 _isRunning = false;
             }
+
+            return Task.CompletedTask;
         }
 
         public byte[][]? GetPriceUpdateData()
         {
             lock (_lock)
             {
-                if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - _lastContractUpdateTime > _priceValidityPeriodSeconds.TotalSeconds)
+                if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - _lastContractUpdateTime > _options.PriceValidityPeriodSec)
                 {
                     return _priceUpdateData;
                 }
@@ -98,7 +107,7 @@ namespace OnchainClob.Services.Pyth
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     await UpdateAsync(cancellationToken);
-                    await Task.Delay(_updateInterval, cancellationToken);
+                    await Task.Delay(_options.UpdateIntervalMs, cancellationToken);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

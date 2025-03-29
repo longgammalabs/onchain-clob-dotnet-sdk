@@ -1,8 +1,9 @@
-﻿using OnchainClob.Client.Events;
+﻿using Microsoft.Extensions.Hosting;
+using OnchainClob.Client.Events;
 
 namespace OnchainClob.Client.Abstract
 {
-    public interface IOnchainClobWsClient
+    public interface IOnchainClobWsClient : IHostedService
     {
         bool IsConnected { get; }
         WsClientStatus StateStatus { get; }
@@ -12,8 +13,6 @@ namespace OnchainClob.Client.Abstract
         event EventHandler<WsClientStatus>? StateStatusChanged;
         event EventHandler<UserOrdersEventArgs>? UserOrdersUpdated;
 
-        Task StartAsync();
-        Task StopAsync();
         void SubscribeUserOrdersChannel(string userAddress, string marketId);
     }
 }

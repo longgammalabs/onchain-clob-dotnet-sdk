@@ -44,7 +44,7 @@ namespace OnchainClob.Client
         public bool IsConnected => _ws != null && _ws.IsRunning;
         public WsClientStatus StateStatus { get; private set; }
 
-        public async Task StartAsync()
+        public async Task StartAsync(CancellationToken ct)
         {
             if (IsConnected)
                 return;
@@ -85,7 +85,7 @@ namespace OnchainClob.Client
             await _ws.Start();
         }
 
-        public async Task StopAsync()
+        public async Task StopAsync(CancellationToken ct)
         {
             if (!IsConnected)
                 return;
