@@ -124,10 +124,10 @@ namespace OnchainClob.Services
             var requests = new List<RpcRequest>
             {
                 // get native balance
-                _rpc.CreateBalanceRequest(_fromAddress, BlockNumber.Pending) with { Id = 1 },
+                RpcClient.CreateBalanceRequest(_fromAddress, BlockNumber.Pending) with { Id = 1 },
 
                 // get token X balance
-                _rpc.CreateCallRequest(
+                RpcClient.CreateCallRequest(
                     to: symbolConfig.TokenX.ContractAddress,
                     from: _fromAddress,
                     input: new BalanceOf { Account = vaultAddress }
@@ -136,7 +136,7 @@ namespace OnchainClob.Services
                     block: BlockNumber.Pending) with { Id = 2 },
 
                 // get token Y balance
-                _rpc.CreateCallRequest(
+                RpcClient.CreateCallRequest(
                     to: symbolConfig.TokenY.ContractAddress,
                     from: _fromAddress,
                     input: new BalanceOf { Account = vaultAddress }
@@ -145,7 +145,7 @@ namespace OnchainClob.Services
                     block: BlockNumber.Pending) with { Id = 3 },
 
                 // get lob balances
-                _rpc.CreateCallRequest(
+                RpcClient.CreateCallRequest(
                     to: symbolConfig.ContractAddress.ToLowerInvariant(),
                     from: _fromAddress,
                     input: new GetTraderBalance{ Address = _vaultAddress }
