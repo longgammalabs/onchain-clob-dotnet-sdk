@@ -1,4 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
+using Nethereum.Contracts;
+using OnchainClob.Abi.Lob.Events;
 using OnchainClob.Client;
 using OnchainClob.Client.Configuration;
 using OnchainClob.Client.Lob;
@@ -25,6 +27,8 @@ namespace OnchainClob.Trading
         private readonly RpcClient _rpc;
         private readonly GasStation _gasStation;
         private readonly GasLimits? _defaultGasLimits;
+
+        public event Action<IEnumerable<ulong>>? OrdersPlaced;
 
         public LobTrader(
             ISymbolConfig symbolConfig,
@@ -660,12 +664,26 @@ namespace OnchainClob.Trading
         private void Executor_TxSuccessful(object sender, Events.ConfirmedEventArgs e)
         {
             var symbolEvents = e.Receipt.Logs
-                .Where(l =>
-                    l.Address.Equals(_symbolConfig.ContractAddress, StringComparison.InvariantCultureIgnoreCase))
+                .Where(
+                    l => l.Address.Equals(
+                        _symbolConfig.ContractAddress,
+                        StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             if (symbolEvents.Count == 0)
                 return;
+
+            var orderIds = symbolEvents
+                .Where(
+                    l => l.Topics[0].Equals(
+                        $"0x{OrderPlacedEventDTO.SignatureHash}",
+                        StringComparison.OrdinalIgnoreCase))
+                .Select(l => new OrderPlacedEventDTO().DecodeEvent(l.ToFilterLog()))
+                .Where(l => l.OrderId != 0)
+                .Select(l => l.OrderId)
+                .ToList();
+
+            OrdersPlaced?.Invoke(orderIds);
 
             // update balances in background
             _ = Task.Run(async () =>
