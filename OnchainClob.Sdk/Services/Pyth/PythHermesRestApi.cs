@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace OnchainClob.Services.Pyth
 {
-    public class PythHermesApi(string baseUrl = PythHermesApi.BASE_URL, HttpClient? httpClient = null)
+    public class PythHermesRestApi(string baseUrl = PythHermesRestApi.BASE_URL, HttpClient? httpClient = null)
     {
         public const string BASE_URL = "https://hermes.pyth.network/";
 

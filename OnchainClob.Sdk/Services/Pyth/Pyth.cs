@@ -16,13 +16,13 @@ namespace OnchainClob.Services.Pyth
 
     public class Pyth(
         PythOptions options,
-        PythHermesApi pythHermesApi,
+        PythHermesRestApi pythHermesApi,
         ILogger<Pyth>? logger = null) : IHostedService
     {
         public event EventHandler<EventArgs>? OnUpdate;
 
         private readonly PythOptions _options = options ?? throw new ArgumentNullException(nameof(options));
-        private readonly PythHermesApi _pythHermesApi = pythHermesApi;
+        private readonly PythHermesRestApi _pythHermesApi = pythHermesApi;
         private readonly ILogger<Pyth>? _logger = logger;
         private readonly object _startStopLock = new();
         private readonly object _lock = new();
