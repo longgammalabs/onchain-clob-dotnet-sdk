@@ -100,6 +100,9 @@ namespace OnchainClob.Services.Pyth
 
         private async Task UpdatePriceAsync(CancellationToken ct)
         {
+            if (_options.PriceFeeds?.Count == 0)
+                return;
+
             var idsQuery = string.Join("&", _options.PriceFeeds.Select(id => $"ids[]={id}").ToList());
             var requestUri = $"{_options.Url}?{idsQuery}";
 
