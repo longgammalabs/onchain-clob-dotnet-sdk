@@ -39,6 +39,6 @@ namespace OnchainClob.Abi.Vault
     public class BatchChangeOrderOutputDTO : IFunctionOutputDTO
     {
         [Parameter("uint64[]", "newOrderIds", 1)]
-        public ulong[] NewOrderIds { get; set; } = default!;
+        public List<ulong> NewOrderIds { get; set; } = default!;
     }
 }
