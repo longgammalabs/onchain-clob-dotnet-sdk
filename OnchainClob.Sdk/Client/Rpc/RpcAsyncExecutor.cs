@@ -19,12 +19,14 @@ namespace OnchainClob.Client.Rpc
     public class RpcAsyncExecutor : IAsyncExecutor
     {
         private const int TX_CONFIRMATION_CHECK_INTERVAL_MS = 1000;
+        private const int TX_CONFIRMATION_TIMEOUT_MS = 10000;
 
         private readonly RpcClient _rpc;
         private readonly ISigner _signer;
         private readonly RpcTransactionTracker _tracker;
         private readonly NonceManager _nonceManager;
         private readonly int _txConfirmationCheckIntervalMs;
+        private readonly int _txConfirmationTimeoutMs;
         private readonly ILogger<RpcAsyncExecutor>? _logger;
 
         /// <summary>
@@ -43,6 +45,7 @@ namespace OnchainClob.Client.Rpc
         /// Fired when an error occurs while sending a transaction.
         /// </summary>
         public event EventHandler<ErrorEventArgs>? Error;
+        public event EventHandler<ErrorEventArgs>? TimeOutReached;
 
         /// <summary>
         /// Gets the signer used by the executor.
@@ -64,15 +67,18 @@ namespace OnchainClob.Client.Rpc
             RpcTransactionTracker tracker,
             NonceManager nonceManager,
             int txConfirmationCheckIntervalMs = TX_CONFIRMATION_CHECK_INTERVAL_MS,
+            int txConfirmationTimeoutMs = TX_CONFIRMATION_TIMEOUT_MS,
             ILogger<RpcAsyncExecutor>? logger = null)
         {
             _signer = signer ?? throw new ArgumentNullException(nameof(signer));
             _logger = logger;
             _txConfirmationCheckIntervalMs = txConfirmationCheckIntervalMs;
+            _txConfirmationTimeoutMs = txConfirmationTimeoutMs;
 
             _tracker = tracker ?? throw new ArgumentNullException(nameof(tracker));
             _tracker.ReceiptReceived += Tracker_ReceiptReceived;
             _tracker.ErrorReceived += Tracker_ErrorReceived;
+            _tracker.TimeOutReached += Tracker_TimeOutReached;
 
             _rpc = rpc ?? throw new ArgumentNullException(nameof(rpc));
             _nonceManager = nonceManager ?? throw new ArgumentNullException(nameof(nonceManager));
@@ -118,7 +124,8 @@ namespace OnchainClob.Client.Rpc
 
                         _ = _tracker.TrackTransactionAsync(
                             txId,
-                            updateInterval: TimeSpan.FromMilliseconds(_txConfirmationCheckIntervalMs));
+                            updateInterval: TimeSpan.FromMilliseconds(_txConfirmationCheckIntervalMs),
+                            timeOut: TimeSpan.FromMilliseconds(_txConfirmationTimeoutMs));
                     }
                 }
                 catch (Exception ex)
@@ -162,6 +169,11 @@ namespace OnchainClob.Client.Rpc
                 RequestId = e.TxId,
                 Error = e.Error
             });
+        }
+
+        private void Tracker_TimeOutReached(object sender, Revelium.Evm.Rpc.Events.ErrorEventArgs e)
+        {
+            TimeOutReached?.Invoke(this, new ErrorEventArgs { RequestId = e.TxId, Error = e.Error });
         }
     }
 }
