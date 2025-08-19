@@ -152,7 +152,9 @@ namespace OnchainClob.Services
                         .CreateTransactionInput(symbolConfig.ContractAddress)
                         .Data,
                     block: BlockNumber.Pending) with { Id = 4 }
-            };
+            }
+            .UseAutoIncrementedIds()
+            .ToList();
 
             var (results, error) = await _rpc.SendBatchAsync<string>(requests, cancellationToken);
 
